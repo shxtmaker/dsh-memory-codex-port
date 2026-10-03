@@ -2,12 +2,12 @@
 
 为 DeepSeek Harness 提供 Codex 式双阶段后台记忆：先从原生会话日志提炼，再按差异整理为可检索记忆。提供全局与项目范围、SQLite 存储、Markdown 快照和「设置 → 记忆」管理页面。
 
-**当前版本：0.1.5。验收状态：待完成验收。** 本机 Web、固定模型闭环和已装 Desktop 的隔离安装/Remote 已通过；Desktop 登录后的可见页面、真实供应商模型和真实远程连接仍待验收。0.1.5 整理了公开文档、源码包和安装包，生产源码与已验收的 0.1.4 保持一致。
+**当前版本：0.1.6。验收状态：待完成验收。** 本版修复后台提炼访问原生日志时遗漏 `sessionPersistence` 依赖而导致的 `SOURCE_UNAVAILABLE`。新增回归验收直接运行插件自身的后台链路，并使用宿主默认 Zstandard 压缩日志；固定模型提炼、整理已通过。用户截图证明隔离 Desktop 页面可见；修复包的 Desktop 升级、完整交互和真实模型闭环仍待验收。
 
 - GitHub：[shxtmaker/dsh-memory-codex-port](https://github.com/shxtmaker/dsh-memory-codex-port)
 - Gitea：[lqy/dsh-memory-codex-port](http://192.168.3.100:3300/lqy/dsh-memory-codex-port)
-- 安装包：[dist/dsh-memory-local-0.1.5.tgz](https://github.com/shxtmaker/dsh-memory-codex-port/blob/main/dist/dsh-memory-local-0.1.5.tgz)
-- 完整源码包：[dist/dsh-memory-codex-port-0.1.5-source.zip](https://github.com/shxtmaker/dsh-memory-codex-port/blob/main/dist/dsh-memory-codex-port-0.1.5-source.zip)
+- 安装包：[dist/dsh-memory-local-0.1.6.tgz](https://github.com/shxtmaker/dsh-memory-codex-port/blob/main/dist/dsh-memory-local-0.1.6.tgz)
+- 完整源码包：[dist/dsh-memory-codex-port-0.1.6-source.zip](https://github.com/shxtmaker/dsh-memory-codex-port/blob/main/dist/dsh-memory-codex-port-0.1.6-source.zip)
 - 校验值：[dist/SHA256SUMS.txt](https://github.com/shxtmaker/dsh-memory-codex-port/blob/main/dist/SHA256SUMS.txt)
 - [验收记录](https://github.com/shxtmaker/dsh-memory-codex-port/blob/main/implementation/dsh-memory/ACCEPTANCE.md) · [实施状态](https://github.com/shxtmaker/dsh-memory-codex-port/blob/main/implementation/dsh-memory/IMPLEMENTATION_STATUS.md)
 
@@ -31,8 +31,8 @@
 | DeepSeek Harness Host | 严格匹配 `0.2.0-rc.2` |
 | Node.js | 24 或更高，需支持 `node:sqlite` 与 Worker |
 | 已实测环境 | Windows；匹配版本 npm Web/原生内核；已装 Desktop 0.2.0-rc.2 的独立 profile |
-| Desktop 可见页面 | BLOCKED：隔离实例需要登录/API Key，未跳过欢迎页 |
-| 真实模型 | BLOCKED：未使用真实供应商凭证或额度 |
+| Desktop 可见页面 | PASS：用户提供隔离 Desktop 页面截图；完整管理交互、0.1.6 升级待验收 |
+| 真实模型 | BLOCKED：原尝试在模型调用前失败；修复包待重验，仍需足够的实际 3% credit |
 | 非 loopback Host | BLOCKED：该版本 CLI 拒绝非 loopback 监听 |
 
 不要在其他 Host 版本使用兼容豁免强装。当前包不声明支持 `0.2.1-alpha.1`。不要求修改 agent-loop、Desktop 主进程、preload 或内置 settings shell；不启动独立服务，不运行 Codex，也不访问 Codex 数据库。
@@ -41,7 +41,7 @@
 
 ### Desktop
 
-确认应用和 Host 均为 `0.2.0-rc.2`，登录后通过应用自己的插件管理入口安装 `dsh-memory-local-0.1.5.tgz`。Desktop 使用自己的 bundled runtime、pnpm 和 desktop profile；不要用系统 npm 代替它的包管理器。
+确认应用和 Host 均为 `0.2.0-rc.2`，登录后通过应用自己的插件管理入口安装 `dsh-memory-local-0.1.6.tgz`。Desktop 使用自己的 bundled runtime、pnpm 和 desktop profile；不要用系统 npm 代替它的包管理器。
 
 安装后进入「设置 → 记忆」。开关和发送许可默认关闭。人工记忆、编辑和浏览不依赖模型；自动生成需要先配置宿主模型路由，并在记忆高级设置中填写 provider/model、确认发送许可。`fixture` 仅是测试适配器，不能作为正式路由。
 
@@ -55,7 +55,7 @@ Set-Location dsh-memory-codex-port
 npm ci --prefix runtime-v0.2.0-rc.2
 
 $repoRoot = (Get-Location).Path
-$bundlePath = (Resolve-Path 'dist/dsh-memory-local-0.1.5.tgz').Path
+$bundlePath = (Resolve-Path 'dist/dsh-memory-local-0.1.6.tgz').Path
 $env:DSH_HOME = Join-Path $repoRoot '.review-home'
 Set-Location runtime-v0.2.0-rc.2
 node node_modules/@deepseek-ai/dsh/lib/bin.js --profile memory-review --from-default-profile web --dump-config
@@ -78,7 +78,7 @@ node node_modules/@deepseek-ai/dsh/lib/bin.js --profile memory-review --no-open 
 
 ## 生成、召回与费用
 
-默认空闲 10 分钟后提炼，整理最短间隔 30 分钟。新活动会推迟待执行提炼。只采集启用后新完成的根会话；提炼时读取并等待原生日志 flush，排除隐藏推理、高优先级指令、记忆注入和记忆工具结果。不自动扫描历史。
+默认空闲 10 分钟后提炼，后续成功整理最短间隔 30 分钟；新范围首次整理可以立即排队。空闲时间到达仍需 credit 足够，等待本身不会增加 credit。新活动会推迟待执行提炼。只采集启用后新完成的根会话；提炼时读取并等待原生日志 flush，排除隐藏推理、高优先级指令、记忆注入和记忆工具结果。不自动扫描历史。
 
 自动召回不增加提炼或重排序模型调用。项目识别、策略核对、证据撤回和所有召回共用 150ms 截止；超时继续前台，晚到结果不注入。定时器存在调度误差，150ms 不代表整个模型请求或首 token 的延迟保证。
 
@@ -101,6 +101,8 @@ Capture 保存有界来源元数据，不建立第二套完整聊天日志。模
 ## 升级、卸载与回滚
 
 升级前退出 Host，备份对应记忆目录和 profile 配置/锁文件。不要在运行时只复制 state.sqlite 而漏掉 WAL。
+
+从 0.1.4/0.1.5 升级到 0.1.6 后，原 `SOURCE_UNAVAILABLE` 失败任务保留，不会自动重试或扫描旧历史。请保持同一隔离 home/profile，在启用项目生成后使用新会话发送一个新样本。仅项目验收时关闭全局生成；credit 不足应记录为等待额度，不修改数据库或提高预算。
 
 - Web：在匹配运行时目录使用 `node node_modules/@deepseek-ai/dsh/lib/bin.js plugin --profile memory-review add <新包实际路径>`，随后重启同 home/profile。
 - Desktop：使用应用自己的插件管理路径升级。

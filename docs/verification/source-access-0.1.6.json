@@ -1,0 +1,36 @@
+{
+  "version": "0.1.6",
+  "hostVersion": "0.2.0-rc.2",
+  "date": "2026-10-04",
+  "reportedFailure": "SOURCE_UNAVAILABLE",
+  "originalAttempt": {"state": "FAIL", "modelAttempts": 0, "backgroundTokensUsed": 0},
+  "nativeSourceCopy": {"contiguousRange": true, "hashMatches": true, "contentPublished": false},
+  "regression": {
+    "command": "node tests/production-source.mjs",
+    "before": "FAIL: production extract failed: SOURCE_UNAVAILABLE",
+    "probe": "cannot get property \"sessionPersistence\" without inject",
+    "fix": "Declare sessionPersistence in the plugin inject dependencies",
+    "after": "PASS",
+    "productionPluginContext": true,
+    "persistenceCompression": "default zstd",
+    "model": "FIXTURE",
+    "extractionCalls": 1,
+    "consolidationCalls": 1,
+    "syntheticUsageAndAdvancedClock": true,
+    "userCreditModified": false
+  },
+  "checks": {
+    "npm run build": "PASS",
+    "npm run typecheck": "PASS",
+    "npm test": "PASS: 6 tests",
+    "npm run test:host": "PASS: FIXTURE model",
+    "npm run test:web": "PASS: isolated package install, settings, management, uninstall and reinstall"
+  },
+  "desktopVisiblePage": "PASS: user screenshot of 0.1.4 in isolated Desktop",
+  "desktop016UpgradeAndFullInteraction": "NOT_RUN",
+  "realBackgroundModel": "BLOCKED: actual credit insufficient, requires user retest",
+  "actualNonLoopbackHost": "BLOCKED: Host CLI refuses binding",
+  "userInstanceChanged": false,
+  "userCredentialsRead": false,
+  "realModelCallsByAgent": 0
+}

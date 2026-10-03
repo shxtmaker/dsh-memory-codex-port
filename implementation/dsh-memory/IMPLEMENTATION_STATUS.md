@@ -1,12 +1,12 @@
 # 实施状态
 
-实施规范：技术方案v1.1。公开分发版本：0.1.5，Host严格匹配0.2.0-rc.2。状态：**待完成验收**。
+实施规范：技术方案v1.1。当前修复版本：0.1.6，Host严格匹配0.2.0-rc.2。状态：**待完成验收**。
 
 ## 环境与版本
 
 实际源码位于 `implementation/dsh-memory/`。匹配运行时 manifest/锁文件位于 `runtime-v0.2.0-rc.2/`。Windows实测Node24.19.0/npm11.17.0；实际Desktop/Host0.2.0-rc.2、bundled Node24.21.0。源参考提交5badb15009ae1756c3afe0ae0cef1faafc290ccc仅是参考，不用它代替实际版本核验。
 
-生产源码与已验收0.1.4一致。0.1.5补公开README、锁定版本元数据、许可和便携Desktop目标路径；仍不扫描真实历史，不运行Codex，不改宿主核心，不安装到日常profile。原始证据保留在开发工作区，公开仓库只保留可共享摘录和源码哈希。
+0.1.5生产源码与原0.1.4一致。0.1.6修复后台原生日志服务依赖遗漏；旧固定模型测试另建Engine，不能证明插件自身后台链路通过。仍不扫描真实历史，不运行Codex，不改宿主核心，不安装到日常profile。原始证据保留在开发工作区，公开仓库只保留可共享摘录和源码哈希。
 
 ## T01–T23
 
@@ -43,7 +43,17 @@ DONE限定于下列实测范围，不能替代BLOCKED环境验收。
 - 0.1.4：build、typecheck、五个有界A2–A5用例、真实内核固定适配器闭环、真实Web管理与卸载重装PASS。
 - 已装Desktop：真实exe/bundled pnpm的隔离安装与Remote200 PASS；登录后的可见页面BLOCKED。
 - 0.1.5：生产源文件哈希与基线逐文件核对；必要构建、包安装和Remote核对。精确公开结果见 `docs/verification/distribution.json`。
+- 0.1.6：build、typecheck、六项测试、test:host、实际候选包test:web及隔离卸载/重装PASS；真实远程监听仍被Host拒绝。生产源只有日志服务依赖声明变化。
 
 ## 阻塞与下一步
 
-需要授权的隔离Desktop登录、可用真实模型路由及正式支持的非loopback Host。条件具备后执行ACCEPTANCE.md中的三项真实环境验收。不给缺失项补造证据，不为了验收提高额度、改安全条件或绕过欢迎页。
+用户截图已证明隔离Desktop页面可见。仍需0.1.6升级与完整交互、足够的实际credit及正式支持的非loopback Host。条件具备后执行ACCEPTANCE.md中的三项真实环境验收。不给缺失项补造证据，不为了验收提高额度、改安全条件或绕过欢迎页。
+
+## 2026-10-04 来源访问修复
+
+- 复现：`node tests/production-source.mjs` 在原生产包失败，任务为 `SOURCE_UNAVAILABLE`，未进入模型；探针报 `cannot get property "sessionPersistence" without inject`。
+- 原始隔离日志副本可读取完整来源范围且hash一致，排除缺失日志和压缩解码不一致。
+- 修复：`src/index.ts` 的inject加入 `sessionPersistence`，不改宿主或管理权限。
+- 回归：新增生产插件上下文、默认zstd日志、一次提炼/一次整理用例；纳入 `npm test`。时钟前移和大usage只用于全新夹具home，不改用户credit。
+- 检查：build、typecheck、五项原A2–A5及新增生产后台闭环PASS；test:host、test:web及隔离包安装/卸载/重装PASS。真实模型未调用，用户实例未升级或重启；原失败记录保留。
+- 下一步：用户在同一隔离profile升级0.1.6，用新样本继续验收。credit不足时正确等待，不提高额度。分发包最终校验记录见 `docs/verification/distribution-0.1.6.json`。

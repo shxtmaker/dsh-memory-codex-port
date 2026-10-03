@@ -1,6 +1,6 @@
 # 验收记录
 
-结论：**待完成验收**。生产源码基线为已实际验收的 0.1.4；0.1.5 为公开打包版本，保留相同生产源码，补充便携文档、可配置 Desktop 测试路径和许可。不得把固定适配器或 Web 页面算作真实供应商模型或可见 Desktop 页面通过。
+结论：**待完成验收**。当前修复版本为 0.1.6。0.1.4/0.1.5 的直接插件上下文后台链路存在缺陷，旧测试另建 Engine，未覆盖该路径。0.1.6 声明 `sessionPersistence` 依赖，并补充直接运行生产插件后台、使用默认压缩日志的回归验收。不得把固定适配器或 Web 页面算作真实供应商模型或完整 Desktop 管理交互通过。
 
 ## 实际环境
 
@@ -17,10 +17,12 @@
 | 插件构建 / 类型检查 | PASS | rc.2 官方严格 Typert、Host、SQLite Worker、lazy-CJS Client |
 | A1 Web 安装与页面 | PASS | 实际包安装、页面、Remote、双开关、来源、编辑、revision 冲突、文件浏览、导出、清空 |
 | A1 Desktop 安装与 Remote | PASS | 真实已装 exe、Electron Node-mode、bundled pnpm、独立 desktop profile、memory Remote 200 |
-| A1 Desktop 可见页面 | BLOCKED | 独立实例需要登录/API Key；工作区保持隐藏，未绕过欢迎页 |
+| A1 Desktop 可见页面 | PASS，用户截图 | 用户隔离 Desktop 0.1.4 的记忆高级页面可见；不代表全部管理操作已验收 |
+| A1 Desktop 0.1.6 升级及完整管理交互 | NOT_RUN | 未修改用户正在运行的隔离实例，待用户升级后完成 |
 | A1 实际非 loopback Host | BLOCKED | CLI 明确拒绝 0.0.0.0 监听，未覆盖安全条件 |
 | A2 原生日志闭环 | PASS，固定模型 | 实际 AgentLoop、持久日志、提炼、整理、新会话命中、重启、中文/代码检索、A/B 与全局隔离 |
-| A2 真实模型闭环 | BLOCKED | 未获得授权的实际路由、凭证和调用条件 |
+| A2 真实模型闭环 | BLOCKED | 原尝试 FAIL：SOURCE_UNAVAILABLE，尝试次数0、后台费用0；0.1.6待重验，原可用credit不足 |
+| A2 插件自身后台与默认压缩日志 | PASS，固定模型 | 0.1.6直接通过插件上下文执行原生日志读取、提炼、整理；测试时钟与usage明确为夹具 |
 | A2 只读权限夹具 | PASS | 实际管理实现按 Host 能力关闭写入；当前项目可读，越权 scope 拒绝；非真实网络连接 |
 | A3 开关、来源、删除、清空 | PASS | 独立 use/generate、人工保护、revision 冲突、epoch、水位线、旧任务提交拒绝 |
 | A3 原生撤回与重放 | PASS | user/message、仅修改正文的 tool/result、卸载重放 |
@@ -30,7 +32,7 @@
 | 系统文件管理器 | NOT_RUN | 使用已通过的页内浏览/复制路径/导出降级 |
 | WAN / 真实远程 Desktop | NOT_RUN | 未建立对应实际环境 |
 
-公开证据见 [docs/verification](../../docs/verification)。`evidence/verified-0.1.4.json` 记录生产源文件与验收基线的 SHA-256 一致性。新分发包的构建、安装和 Remote 核对见分发验证记录。仅文档、测试目标路径和分发元数据变化时复用仍有效的约束证据，不重复运行全平台矩阵。
+公开证据见 [docs/verification](../../docs/verification)。`evidence/verified-0.1.4.json` 为历史0.1.5与0.1.4的源文件一致性记录，不适用于0.1.6。来源日志副本的事件范围/hash一致；原始日志和用户配置不公开。0.1.6失败复现、修复和检查结果见 `source-access-0.1.6.json`。
 
 ## 计量边界
 
@@ -40,8 +42,8 @@
 
 ## 待完成验收
 
-1. 在授权的隔离Desktop中登录后，操作实际可见记忆页面。
-2. 已授权的匹配真实路由和额度具备后，一个短样本完成一次提炼、一次整理；保持3%和日额度，不自动透支。
+1. 在同一授权隔离Desktop中升级0.1.6后，完成全部记忆管理交互。
+2. 实际3% credit足够后，一个新短样本完成一次真实提炼、一次真实整理；保留原失败记录，不扫描旧历史，不自动透支。
 3. Host正式允许授权非loopback连接后，验证真实远程当前项目和只读行为。
 
 上述缺口解除前，不宣称全部验收完成。

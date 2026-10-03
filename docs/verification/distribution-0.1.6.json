@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "hostVersion": "0.2.0-rc.2",
+  "environment": "isolated loopback Web",
+  "package": "dist/dsh-memory-local-0.1.6.tgz",
+  "version": "0.1.6",
+  "sha256": "a3d21ded0021aa28a611e9030e0640eef7a87a2ffd6191d3b96c71b966157b1f",
+  "fileCount": 30,
+  "builtFilesIdenticalToAcceptedCandidate": 23,
+  "allInstalledFilesMatchFinalPackage": true,
+  "actualSettingsPage": true,
+  "actualRemote200": true,
+  "realModel": "BLOCKED",
+  "desktop": "NOT_RUN: 0.1.6 Desktop upgrade and interaction require user retest",
+  "realRemote": "BLOCKED",
+  "date": "2026-10-04"
+}

@@ -25,7 +25,7 @@ export { Config } from './config.ts'
 export { MemoryRemote } from './remote-service.ts'
 export type { ManageRequest, ManageResult } from './contracts.ts'
 export const name='dsh-memory'
-export const inject=['sessions','agents','systemPrompt','tools','commands','llm']
+export const inject=['sessions','sessionPersistence','agents','systemPrompt','tools','commands','llm']
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'dsh-memory': {kind:'dsh-memory';form:'recall';reservation:string;epochs:Record<string,number>;items:{id:string;revision:number;scope:string}[]}
