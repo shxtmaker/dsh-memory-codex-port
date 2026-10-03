@@ -1,0 +1,5 @@
+
+> dsh-memory-local@0.1.5 build
+> node build/build.mjs
+
+Built Host, SQLite Worker, lazy-CJS Client and strict Typert Remote for 0.2.0-rc.2

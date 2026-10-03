@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.png -text
+*.tgz -text
+*.zip -text
+# 保留已验收生产源码字节；此基线文件的末尾空行不是新增格式规则。
+implementation/dsh-memory/src/index.ts whitespace=-blank-at-eof

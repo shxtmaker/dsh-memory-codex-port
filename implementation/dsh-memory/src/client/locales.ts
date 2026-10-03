@@ -1,0 +1,23 @@
+/** 页面文案仅面向记忆使用者。 */
+export const copy={
+  nav:'记忆',description:'查看和管理当前配置档中的长期记忆。',behavior:'记忆行为',
+  global:'全局记忆',project:'项目记忆',globalDescription:'在允许的项目中使用和更新个人偏好、习惯和长期上下文。',
+  projectDescription:'按项目隔离使用和更新代码库规则、经验和长期上下文。',
+  history:'关闭读写不等于抹除历史对话；需要严格隔离时请新建会话。',
+  browse:'浏览',clear:'清空',save:'保存',refresh:'刷新',edit:'编辑',remove:'删除',sources:'来源',
+  empty:'暂无记忆。可以保存人工记忆；自动提炼会在会话完成并获得额度后进行。',
+  new:'新建记忆',title:'标题',content:'内容',close:'关闭',files:'记忆文件',items:'记忆条目',
+  readonly:'当前连接只读。',advanced:'高级设置与后台状态',copyPath:'复制路径',export:'导出 Markdown',
+  route:'提炼模型路由',provider:'已配置的 provider 标识',model:'已配置的 model 标识',
+  consent:'允许向所选模型路由发送已脱敏的近期会话证据',generateOnly:'自动生成',useOnly:'使用记忆',
+  clearWarning:'清空长期记忆不删除原始聊天记录，不撤回已发送给供应商的数据，也不删除主动导出的文件。此操作不承诺磁盘安全擦除。',
+  enableWarning:'后台提炼将向所选模型路由发送脱敏后的近期用户消息、助手文本及必要工具证据。不会发送私有推理或高优先级指令。',
+  waiting:'等待额度',queued:'排队中',running:'处理中',retry:'等待重试',failed:'失败',cancelled:'已取消',succeeded:'已完成',succeeded_no_output:'完成，无新记忆',
+  conflict:'记录已变化。草稿已保留，请重新载入最新内容后再保存。',loadLatest:'重新载入',
+  noProjects:'项目会在新会话使用工作目录后出现。',updated:'更新于',confirmClear:'确认清空',scope:'作用域',revision:'版本',status:'状态',
+  local:'存储于当前执行主机',profile:'配置档',fileCount:'个可读文件',itemCount:'条有效记忆',
+  credit:'后台可用额度',daily:'今日后台已用',evidence:'会话累计证据',static:'稳定策略与工具 schema 另计',
+  routeNeeded:'请先填写已配置的模型路由。',policyRejected:'配置写入未获宿主接受。',noTime:'尚无内容提交',
+  pauseGeneration:'暂停生成，保留读取',override:'项目覆盖',deleted:'来源已排除',sourceRange:'事件范围',
+  loadMore:'加载更多',usageUnknown:'用量未知，自动任务已暂停',
+} as const

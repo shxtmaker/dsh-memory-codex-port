@@ -1,0 +1,23 @@
+{
+  "recordVersion": "0.1.4",
+  "localPathsNormalized": true,
+  "evidence": [
+    {
+      "name": "A1/A3 actual loopback Web",
+      "status": "PASS",
+      "installedPackage": "<workspace>/implementation/dsh-memory\\artifacts\\candidate\\dsh-memory-local-0.1.4.tgz",
+      "sourceDetails": true,
+      "conflictPreservesDraft": true,
+      "manualSave": true,
+      "pageFileBrowser": true,
+      "export": true,
+      "doubleSwitch": true,
+      "clearScopeIsolation": true
+    },
+    {
+      "name": "non-loopback actual Web",
+      "status": "BLOCKED",
+      "reason": "Harness CLI refuses non-loopback binding for safety; no override attempted"
+    }
+  ]
+}

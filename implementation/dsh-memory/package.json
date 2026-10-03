@@ -1,0 +1,81 @@
+{
+  "name": "dsh-memory-local",
+  "version": "0.1.5",
+  "description": "DeepSeek Harness 本机双阶段记忆与管理页面",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./typert": {
+      "types": "./lib/typert.host.d.ts",
+      "default": "./lib/typert.host.js"
+    },
+    "./remote": {
+      "types": "./lib/typert.remote-client.d.ts",
+      "default": "./lib/typert.remote-client.js"
+    },
+    "./contracts": {
+      "types": "./lib/types/contracts.d.ts",
+      "default": "./lib/contracts.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "ACCEPTANCE.md",
+    "IMPLEMENTATION_STATUS.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dsh": {
+    "engines": {
+      "dsh": "0.2.0-rc.2"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-api-session-controller"
+      ]
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.host.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "build": "node build/build.mjs",
+    "test": "node --test tests/acceptance.test.mjs",
+    "test:host": "node tests/host.mjs",
+    "test:web": "node tests/web.mjs",
+    "pack:local": "npm pack --pack-destination artifacts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/schemastery": "3.18.4",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.0-rc.2",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-typert-generator": "0.2.0-rc.2",
+    "@types/node": "^24.0.0",
+    "@types/react": "^18.3.0",
+    "typescript": "^6.0.3",
+    "esbuild": "^0.27.0",
+    "react": "18.3.1",
+    "@playwright/test": "^1.63.0"
+  }
+}

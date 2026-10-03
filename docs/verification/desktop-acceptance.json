@@ -1,0 +1,19 @@
+{
+  "recordVersion": "0.1.4",
+  "localPathsNormalized": true,
+  "evidence": {
+    "hostVersion": "0.2.0-rc.2",
+    "desktopVersion": "0.2.0-rc.2",
+    "environment": "installed executable and bundled runtime; isolated home/user-data-dir",
+    "home": "<workspace>/implementation/dsh-memory\\test-runs\\desktop-YMA7EY",
+    "userData": "<workspace>/implementation/dsh-memory\\test-runs\\desktop-YMA7EY\\electron-user-data",
+    "package": "<workspace>/implementation/dsh-memory\\artifacts\\dsh-memory-local-0.1.4.tgz",
+    "actualBundledInstallation": "PASS",
+    "actualMemoryRemote200": "PASS",
+    "writable": true,
+    "sqliteRoot": "<workspace>/implementation/dsh-memory\\test-runs\\desktop-YMA7EY\\memory\\desktop-fixture",
+    "visibleWorkspace": "BLOCKED",
+    "reason": "Isolated Desktop presents login/API Key welcome and keeps workspace hidden; no login credentials used and no welcome bypass attempted",
+    "realModel": "BLOCKED"
+  }
+}

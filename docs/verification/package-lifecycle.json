@@ -1,0 +1,16 @@
+{
+  "recordVersion": "0.1.4",
+  "localPathsNormalized": true,
+  "evidence": {
+    "status": "PASS",
+    "home": "<workspace>/implementation/dsh-memory\\test-runs\\native-EhUQlw",
+    "profile": "web-fixture-1791041071121",
+    "hostVersion": "0.2.0-rc.2",
+    "package": "<workspace>/implementation/dsh-memory\\artifacts\\candidate\\dsh-memory-local-0.1.4.tgz",
+    "version": "0.1.4",
+    "upgradedFrom": null,
+    "uninstallRemovesPage": true,
+    "retainsSQLite": true,
+    "reinstallReadsSameData": true
+  }
+}

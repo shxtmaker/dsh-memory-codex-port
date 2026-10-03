@@ -1,0 +1,19 @@
+
+> dsh-memory-local@0.1.4 test
+> node --test tests/acceptance.test.mjs
+
+✔ A2 固定模型闭环、全局/项目隔离、增量差异和重启 (273.1118ms)
+✔ A3 双策略、人工保护、revision、删除及 clear 防旧任务重生 (186.2078ms)
+A4 shared deadline observed=150.4ms; settled=752/1024 UTF-8 conservative tokens
+A4 actual SQLite contention observed=150.9ms; late reservation released
+✔ A4 共用持久 1024、一次 turn、总截止与晚到丢弃 (685.9925ms)
+✔ A4 3% 无透支、日额度、并发一、失败重试及未知 usage 暂停 (147.1202ms)
+✔ A5 Worker 故障、身份拒绝、快照重建、路径拒绝与可停止生命周期 (396.7563ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1854.8074
