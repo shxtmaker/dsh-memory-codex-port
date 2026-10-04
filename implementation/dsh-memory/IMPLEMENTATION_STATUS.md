@@ -220,3 +220,5 @@ DONE限定于下列实测范围，不能替代BLOCKED环境验收。
 - 用户明确要求“同步上传至GitHub”。本次将已核验的Gitea main内容同步至既有GitHub仓库shxtmaker/dsh-memory-codex-port，并补记本次授权。同步包括0.1.9源码、锁文件、README、验收记录、可安装tgz、完整源码zip及SHA-256；不新增版本、tag或Release，不重打包。
 - 同步前工作树干净，Gitea main为5f79dc3f1ea35f20cb4f955b9df641280561146d；GitHub main为fbdb92efb177c304fc35723d562cac3868c3ce13。以普通快进push同步，保留历史，不强推。
 - “后续默认只上传Gitea，明确提出再上传GitHub”的偏好保持；本次明确授权只适用于此次同步。前述GitHub保留旧版与Gitea单独发布的日志为历史时点记录。真实跨机器远程及WAN仍未验收，本轮本机范围必要验收PASS。
+- 普通push成功后，`git ls-remote`独立核对GitHub与Gitea main均为16232af611ddd3326ec93ae762823d9185e4030a。GitHub按该提交下载的0.1.9安装包及源码包分别为196525/1253097字节，SHA-256与既有分发记录一致，PASS；未运行构建或真实模型。
+- 校验清单首次与Windows工作区逐字节比较有差异。核查确认仅CRLF/LF不同：本地994字节，提交与GitHub下载均990字节；远端与Git已提交blob逐字节相同，两个0.1.9包的校验项准确，PASS。未修改校验内容、安装包或源码包。
