@@ -36,7 +36,7 @@ DONE限定于下列实测范围，不能替代BLOCKED环境验收。
 | T20 | P4 | DONE | 当前代文件数/时间、分来源额度、手动补充、每日上限、状态、安全错误诊断、权限、连接刷新 |
 | T21 | P5 | DONE | 防重生、未知usage暂停、路径/junction拒绝、存储故障前台放行 |
 | T22 | P5 | DONE，本轮本机范围 | 本地构建/类型、固定模型、实际loopback Web、真实Desktop记忆/管理及复制导出/系统目录降级验收PASS；用户明确跨机器远程及WAN暂不纳入，记为NOT_RUN |
-| T23 | P5 | DONE | 完整源码/锁文件/构建、本地tgz和源码zip、README、验收与SHA-256；0.1.9仅上传并核验Gitea，GitHub保留0.1.7 |
+| T23 | P5 | DONE | 完整源码/锁文件/构建、本地tgz和源码zip、README、验收与SHA-256；0.1.9已完成Gitea交付，本次按用户明确要求同步GitHub；后续仍默认仅Gitea |
 
 ## 已执行检查
 
@@ -214,3 +214,9 @@ DONE限定于下列实测范围，不能替代BLOCKED环境验收。
 - 本轮本机必要验收PASS，T01–T23在表述的本机范围内DONE。构建/类型检查和必要A1–A5复用已有效证据；不重新调用真实模型、不扩大测试矩阵。新增公开摘录见docs/verification/desktop-copy-export-0.1.9.json及acceptance-scope-0.1.9.json；旧失败、计费和历史摘录保持。
 - 本次只修改README、ACCEPTANCE、IMPLEMENTATION_STATUS及公开验收摘录；导出产生一个隔离文件和export审计，记忆条目、profile、额度和生产代码不变。0.1.9安装包及完整源码包保持原哈希，包内文档为打包时状态。文档仅上传Gitea，GitHub不更新。
 - 文档补录的一次补丁因插件README使用绝对链接而上下文不匹配，读取实际内容后修正，未写入部分补丁。`git diff --check`、两份新增JSON解析及发布边界检查、两份原分发包大小/SHA-256核对均PASS；没有生产源码或锁文件变更，不重复运行构建或模型测试。
+
+## 2026-10-04 本次GitHub同步授权与范围
+
+- 用户明确要求“同步上传至GitHub”。本次将已核验的Gitea main内容同步至既有GitHub仓库shxtmaker/dsh-memory-codex-port，并补记本次授权。同步包括0.1.9源码、锁文件、README、验收记录、可安装tgz、完整源码zip及SHA-256；不新增版本、tag或Release，不重打包。
+- 同步前工作树干净，Gitea main为5f79dc3f1ea35f20cb4f955b9df641280561146d；GitHub main为fbdb92efb177c304fc35723d562cac3868c3ce13。以普通快进push同步，保留历史，不强推。
+- “后续默认只上传Gitea，明确提出再上传GitHub”的偏好保持；本次明确授权只适用于此次同步。前述GitHub保留旧版与Gitea单独发布的日志为历史时点记录。真实跨机器远程及WAN仍未验收，本轮本机范围必要验收PASS。
