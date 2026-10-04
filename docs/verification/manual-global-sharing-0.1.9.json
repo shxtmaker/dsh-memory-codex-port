@@ -1,0 +1,81 @@
+{
+  "version": "0.1.9",
+  "date": "2026-10-04",
+  "timezone": "Asia/Shanghai",
+  "verifiedAt": "2026-10-04T08:18:22.956Z",
+  "environment": "user-operated isolated Windows Desktop and Host 0.2.0-rc.2",
+  "status": "PASS",
+  "criteria": [
+    "A1 real Desktop manual save and subsequent revision",
+    "A2 real global memory sharing in fresh project A/B sessions"
+  ],
+  "evidenceSources": [
+    "user screenshots of separate project-A and project-B fresh-session replies",
+    "read-only configured dsh-memory flags",
+    "read-only memory_items, audit_events, projects, sessions, budget_ledger and memory_usage"
+  ],
+  "manualGlobalRecord": {
+    "id": "6ab11d1b-885d-4023-a91d-e43f5a2da74e",
+    "scope": "global",
+    "kind": "preference",
+    "manual": true,
+    "pinned": true,
+    "status": "observed",
+    "revision": 2,
+    "sourceCount": 0,
+    "saveAuditCount": 2,
+    "preference": "回答先给结论",
+    "marker": "MEM-G-019",
+    "createdAt": 1791101829562,
+    "updatedAt": 1791101831657
+  },
+  "projectA": {
+    "freshSession": "session-6a84b1bd-c59a-4b9b-aeeb-9c6dc4444056",
+    "projectId": "a23fb236-8a24-42db-8144-aed243567dec",
+    "reserved": 0,
+    "settled": 988,
+    "sharedSessionEvidenceLimit": 1024,
+    "settledGlobalRevision": 2,
+    "alsoUsedOnlyCurrentProjectRecords": true,
+    "userReplyReturnsPreferenceAndMarker": true
+  },
+  "projectB": {
+    "freshSession": "session-99796551-44d5-492b-9192-32f2703ddf0b",
+    "projectId": "4313f628-6024-4fb5-bb9b-ae671435f6be",
+    "reserved": 0,
+    "settled": 270,
+    "sharedSessionEvidenceLimit": 1024,
+    "settledGlobalRevision": 2,
+    "noProjectARecordsInUsage": true,
+    "userReplyReturnsPreferenceAndMarker": true
+  },
+  "policy": {
+    "globalUse": true,
+    "globalGenerate": false,
+    "projectUse": true,
+    "projectGenerate": false,
+    "consent": true,
+    "dailyTokens": 100000
+  },
+  "interpretation": {
+    "sameGlobalRecordInBothProjects": true,
+    "projectIsolationRetained": true,
+    "projectAReplyMislabelsItsCurrentProjectScopeAsAnotherProject": true,
+    "scopeMappingContradictsThatSentence": true,
+    "modelSentenceDoesNotOverrideLedgerEvidence": true
+  },
+  "remaining": {
+    "desktopFileContentBrowse": "NOT_RUN",
+    "desktopUseDisabledAndDataRetained": "NOT_RUN",
+    "desktopDeleteAndClear": "NOT_RUN",
+    "realRemote": "BLOCKED",
+    "overall": "pending acceptance"
+  },
+  "agentActions": {
+    "credentialsRead": false,
+    "realModelCalled": false,
+    "userDatabaseOrProfileModified": false,
+    "packageChanged": false,
+    "publicationTarget": "Gitea only"
+  }
+}
