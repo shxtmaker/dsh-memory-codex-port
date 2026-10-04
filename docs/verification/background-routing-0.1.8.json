@@ -1,0 +1,69 @@
+{
+  "version": "0.1.8",
+  "date": "2026-10-04",
+  "hostVersion": "0.2.0-rc.2",
+  "environment": "Windows, isolated Host and loopback Web, fixed model adapters",
+  "productionChange": {
+    "scope": "background extraction and consolidation only",
+    "metadataApi": "LlmRuntime.resolveModelInfo",
+    "dispatchApi": "LlmRuntime.prepareCall",
+    "reasoningPolicy": "select off only if the exact route advertises it; otherwise keep adapter default",
+    "foregroundSettingsChanged": false,
+    "providerOrModelChanged": false,
+    "maxOutputTokens": 1024,
+    "dailyDefault": 100000,
+    "initialCredit": 10000,
+    "extraModelCalls": 0,
+    "schemaOrPermissionRelaxation": false
+  },
+  "regression": {
+    "command": "node tests/production-source.mjs --reasoning-regression",
+    "before": "FAIL: production extract failed: MODEL_OUTPUT_TRUNCATED",
+    "after": "PASS: one extraction and one consolidation using off; foreground High and maxTokens 1024 retained",
+    "undeclaredOffCapability": "PASS: normal fixed adapter without reasoning metadata retains defaults and completes production chain"
+  },
+  "buildHistory": {
+    "firstAttempt": "FAIL: TS2551; resolveModel belongs to adapter, not Host runtime",
+    "repair": "verified actual Host declaration and used resolveModelInfo",
+    "secondAttempt": "PASS"
+  },
+  "checks": {
+    "build": "PASS",
+    "typecheck": "PASS",
+    "necessaryTests": { "status": "PASS", "count": 9 },
+    "nativeHost": "PASS (fixed model)",
+    "actualCandidateWeb": "PASS",
+    "nonLoopbackHost": "BLOCKED: Host refuses binding"
+  },
+  "userOperatedDesktopHistory": {
+    "version": "0.1.7",
+    "completeRestart": "PASS: Host process changed",
+    "manualTopUp": "PASS: existing profile initial grant 0, manual grant 8549.63, credit reached 10000",
+    "dailyLimit": 100000,
+    "newExtraction": "FAIL",
+    "attempts": 2,
+    "error": "MODEL_OUTPUT_TRUNCATED",
+    "finish": "max-tokens",
+    "latestAttemptUsage": 1376,
+    "bothAttemptsSettledUsage": 2752,
+    "priorFailureUsage": 1453,
+    "dayUsed": 4205,
+    "remainingCredit": 7248,
+    "paused": false,
+    "exactReasoningVsVisibleOutputSplit": "unknown; neither response body nor private reasoning was saved"
+  },
+  "remaining": {
+    "desktop0.1.8UpgradeAndFullInteraction": "NOT_RUN",
+    "realModel0.1.8ExtractionAndConsolidation": "NOT_RUN",
+    "realModelOverall": "FAIL: prior real attempts did not close the loop",
+    "realRemote": "BLOCKED",
+    "systemFileManager": "NOT_RUN",
+    "overall": "pending acceptance"
+  },
+  "agentActions": {
+    "credentialsRead": false,
+    "userProfileModified": false,
+    "realModelCalled": false,
+    "publicationTarget": "Gitea only"
+  }
+}

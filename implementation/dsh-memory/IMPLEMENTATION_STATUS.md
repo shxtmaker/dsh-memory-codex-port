@@ -1,6 +1,6 @@
 # 实施状态
 
-实施规范：技术方案v1.1；预算按用户2026-10-04明确修订。当前版本：0.1.7，Host严格匹配0.2.0-rc.2。状态：**待完成验收**。
+实施规范：技术方案v1.1；预算按用户2026-10-04明确修订。当前版本：0.1.8，Host严格匹配0.2.0-rc.2。状态：**待完成验收**。
 
 ## 环境与版本
 
@@ -24,7 +24,7 @@ DONE限定于下列实测范围，不能替代BLOCKED环境验收。
 | T08 | P1 | DONE | 中文n-gram、英文/代码词法索引、先范围过滤、24候选/3结果 |
 | T09 | P2 | DONE | 有界元数据、原生flush/read、hash/seq、脱敏、水位线 |
 | T10 | P2 | DONE | 空闲10分钟、8候选、并发1、租约/fence、3%加初始/人工额度、日上限、失败及重试计费 |
-| T11 | P2 | DONE | Phase1严格schema、seq验证、空结果和保守状态；真实模型BLOCKED |
+| T11 | P2 | DONE | Phase1严格schema、seq验证、空结果和保守状态；后台按能力选择off；真实模型既有FAIL、新版NOT_RUN |
 | T12 | P2 | DONE | Phase2差异基线、无差异不调用、受影响旧项、来源/epoch/revision校验 |
 | T13 | P3 | DONE | 原生pre-step；稳定策略；所有自动召回共用150ms |
 | T14 | P3 | DONE | 原生memory search/read、顶层调用、/memory note/off |
@@ -86,3 +86,14 @@ DONE限定于下列实测范围，不能替代BLOCKED环境验收。
 - 结论：升级需要完整Host重启。先前仅确认磁盘版本和新表不能证明运行接口已更新；已补充A1/A5验收及安装说明，不修改宿主、生成schema、权限或预算以绕过校验。
 - 实际隔离Web升级/重启测试PASS；用户Desktop完整重启、新补充及真实模型仍待验收。未关闭用户应用、改写用户数据库、补充实际额度或触发真实模型。
 - 后续上传只使用Gitea；GitHub必须有用户新的明确指示。当前0.1.7安装包保持原哈希，问题处理是完整重启，不需要再次安装相同包。
+
+## 2026-10-04 真实截断及后台推理修订
+
+- 用户完整重启后Host进程已更换，截图及只读账本确认manualGranted=8549.63、credit=10000、dailyTokens=100000；旧已用1453未重置。运行接口及额度管理PASS，旧边界错误保留。
+- 新真实extract及一次重试均输出截断，attempts=2、error=MODEL_OUTPUT_TRUNCATED、modelFinish=max-tokens、最近一次usage=1376；共结算2752，当前credit7248、日已用4205、paused=0。任务已failed，没有继续自动重试；未保存响应正文或私有推理。
+- 实际rc.2官方模型能力默认包含High和off，序列化会把off映射为disabled。旧后台只传maxTokens，继承适配器默认推理；不能仅凭旧记录断言推理是实际截断的唯一原因。
+- 红绿回归：`node tests/production-source.mjs --reasoning-regression` 通过实际插件上下文复现MODEL_OUTPUT_TRUNCATED；新增能力查询及显式off选择后，提炼/整理各一次成功、输出上限1024不变、前台High不变。未声明off的普通固定适配器闭环继续通过。
+- 实现仅修改后台调用配置：使用Host实际公开的resolveModelInfo和prepareCall；不改供应商、路由、宿主、schema、额度、重试上限或失败计费。初次构建误用了适配器的resolveModel名称，TS2551拒绝；核对Host声明后更正为resolveModelInfo并构建通过。
+- 版本0.1.8：build、typecheck、九项必要测试、test:host及实际候选包Web均通过。最终分发核查记录见 `docs/verification/distribution-0.1.8.json`。
+- 未读取凭证、安装用户实例、追加用户额度或由代理触发真实模型；用户0.1.7真实失败仍为FAIL。0.1.8升级、真实提炼/整理及完整Desktop管理交互NOT_RUN，真实远程环境BLOCKED。
+- 下一步：交付0.1.8源码及安装包，仅上传Gitea；用户同一隔离配置档升级、完整重启，用一条新短样本受控重验。已有失败任务不重置尝试次数，不扫描历史。

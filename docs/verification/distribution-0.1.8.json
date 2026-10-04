@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "hostVersion": "0.2.0-rc.2",
+  "environment": "isolated loopback Web",
+  "package": "dist/dsh-memory-local-0.1.8.tgz",
+  "version": "0.1.8",
+  "sha256": "7e12e47c8e5eba16df73acc3f48f457e0da3dbf28c66251e3b7c31f786121fa7",
+  "fileCount": 30,
+  "builtFilesIdenticalToAcceptedCandidate": 23,
+  "allInstalledFilesMatchFinalPackage": true,
+  "actualSettingsPage": true,
+  "actualRemote200": true,
+  "actualDailyDefault": 100000,
+  "realModel": "NOT_RUN for 0.1.8; prior user-operated 0.1.7 extraction failed with max-tokens",
+  "desktop": "NOT_RUN for 0.1.8; user-operated 0.1.7 restart and top-up passed",
+  "realRemote": "BLOCKED"
+}

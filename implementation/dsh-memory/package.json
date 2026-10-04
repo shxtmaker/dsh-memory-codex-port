@@ -1,6 +1,6 @@
 {
   "name": "dsh-memory-local",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "DeepSeek Harness 本机双阶段记忆与管理页面",
   "private": true,
   "type": "module",
@@ -57,7 +57,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.host.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "build": "node build/build.mjs",
-    "test": "node --test tests/acceptance.test.mjs tests/production-source.mjs",
+    "test": "node --test tests/acceptance.test.mjs tests/production-source.mjs tests/background-routing.mjs",
     "test:host": "node tests/host.mjs",
     "test:web": "node tests/web.mjs",
     "pack:local": "npm pack --pack-destination artifacts"

@@ -19,11 +19,23 @@ await mkdir('test-runs',{recursive:true})
 const home=await mkdtemp(resolve('test-runs','production-source-'))
 process.env.DSH_HOME=home
 const cwd=join(home,'project-A');await mkdir(cwd)
-const ctx=new Context(),calls=[];let kernel,agent
+const reasoningRegression=process.argv.includes('--reasoning-regression')
+const ctx=new Context(),calls=[],backgroundConfigs=[];let kernel,agent
 class FixedAdapter extends LlmAdapter {
+  async resolveModel(provider,model){return reasoningRegression?{provider,id:model,name:model,reasoning:{efforts:[{id:'off',name:'Off'},{id:'high',name:'High'}],defaultEffort:'high'}}:super.resolveModel(provider,model)}
   async *stream(options){
     const prompt=options.messages.filter(m=>m.role==='user').flatMap(m=>typeof m.content==='string'?[m.content]:m.content.filter(b=>b.type==='text').map(b=>b.text)).join('\n')
     calls.push(prompt)
+    const background=prompt.startsWith('只输出 JSON：')
+    if(background){
+      backgroundConfigs.push({reasoningEffort:options.reasoningEffort,maxTokens:options.maxTokens})
+      if(reasoningRegression&&options.reasoningEffort!=='off'){
+        yield {type:'reasoning-delta',index:0,text:'synthetic reasoning fixture'}
+        yield {type:'usage',usage:{inputTokens:352,outputTokens:1024,totalTokens:1376}}
+        yield {type:'finish',reason:{kind:'max-tokens'}}
+        return
+      }
+    }else if(reasoningRegression)assert.equal(options.reasoningEffort,'high','foreground route defaults must stay unchanged')
     let text='已确认数据库操作放在 src/repositories。',usage=1000000
     if(prompt.startsWith('只输出 JSON：{"raw_memory"')){
       const events=JSON.parse(prompt.split('\n').at(-1)),seq=events.find(e=>e.role==='user').seq
@@ -62,7 +74,7 @@ try{
   agent.agent.followup(createUserMessage({content:[{type:'text',text:'本项目的数据库操作放在 src/repositories。'}],source:{kind:'user'}}))
   await wait(async()=>agent.agent.status==='idle'&&(await overview()).jobs.some(j=>j.kind==='extract')&&(await overview()).budget.credit>=30000)
   advanceFixtureJobs();await triggerProductionTick()
-  await wait(async()=>(await overview()).jobs.some(j=>j.kind==='extract'&&['failed','succeeded'].includes(j.state)))
+  await wait(async()=>(await overview()).jobs.some(j=>j.kind==='extract'&&['retry','failed','succeeded'].includes(j.state)))
   const extracted=(await overview()).jobs.find(j=>j.kind==='extract')
   assert.equal(extracted.state,'succeeded',`production extract failed: ${extracted.error}`)
   await new Promise(r=>setTimeout(r,30))
@@ -72,8 +84,9 @@ try{
   assert.equal(consolidated.state,'succeeded',`production consolidate failed: ${consolidated.error}`)
   assert.equal(calls.filter(p=>p.startsWith('只输出 JSON：{"raw_memory"')).length,1)
   assert.equal(calls.filter(p=>p.startsWith('只输出 JSON：{"changes"')).length,1)
+  if(reasoningRegression)assert.deepEqual(backgroundConfigs,[{reasoningEffort:'off',maxTokens:1024},{reasoningEffort:'off',maxTokens:1024}])
   const project=(await overview()).projects.find(p=>p.root===cwd.toLowerCase())
   const items=JSON.parse((await ctx.memory.invoke({action:'list',scope:project.id},new AbortController().signal)).json)
   assert.equal(items.length,1)
-  console.log('PASS production plugin context → default zstd log → extract → consolidate (FIXTURE model)')
+  console.log(reasoningRegression?'PASS background off selection → extract → consolidate; foreground High and output cap 1024 unchanged (FIXTURE model)':'PASS production plugin context → default zstd log → extract → consolidate (FIXTURE model)')
 }finally{await agent?.dispose();await kernel?.dispose();await ctx.fiber.dispose()}

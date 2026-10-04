@@ -4,3 +4,5 @@ a3d21ded0021aa28a611e9030e0640eef7a87a2ffd6191d3b96c71b966157b1f  dsh-memory-loc
 7d8867925f5c53b0edffbb9da95fd6ca3fed2fd70f6e54568ef7ff5cde5027a1  dsh-memory-codex-port-0.1.6-source.zip
 45a4149b62ddbbdb6dc01b2fee5361e85cff8ff7344464db1da0813b6948426f  dsh-memory-local-0.1.7.tgz
 e1e2e6173328714578addda123770b69cd3e317ff75bce693386a87f9dd06a9f  dsh-memory-codex-port-0.1.7-source.zip
+7e12e47c8e5eba16df73acc3f48f457e0da3dbf28c66251e3b7c31f786121fa7  dsh-memory-local-0.1.8.tgz
+af61837e1043f5924635f72148b361063c67d71d0b3967de6fd4b43c5e12cede  dsh-memory-codex-port-0.1.8-source.zip

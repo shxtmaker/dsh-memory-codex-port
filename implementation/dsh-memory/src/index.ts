@@ -90,7 +90,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     },
     model:async(prompt,maxTokens,signal)=>{
       const route={provider:config.provider.get(),model:config.model.get()}
-      const prepared=await ctx.llm.prepareCall({...route,maxTokens},signal)
+      // 后台结构化任务只选择路由明确声明的off；不改变前台或假定其他模型支持它。
+      const modelInfo=await ctx.llm.resolveModelInfo(route.provider,route.model,signal)
+      const off=modelInfo.reasoning?.efforts.find(effort=>effort.id==='off')?.id
+      const prepared=await ctx.llm.prepareCall({...route,maxTokens,...(off?{reasoningEffort:off}:{})},signal)
       let text='',usage:number|null=null,finish:string|undefined
       for await(const chunk of prepared.stream({...prepared.config,messages:[{role:'user',content:[{type:'text',text:prompt}]}],signal})){
         if(chunk.type==='text-delta')text+=chunk.text
