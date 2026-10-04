@@ -1,0 +1,79 @@
+{
+  "version": "0.1.9",
+  "date": "2026-10-04",
+  "timezone": "Asia/Shanghai",
+  "verifiedAt": "2026-10-04T08:59:14.506Z",
+  "environment": "user-operated isolated Windows Desktop and Host 0.2.0-rc.2",
+  "status": "PASS",
+  "criterion": "A3 real source deletion, dependent record expiration, unrelated record retained and selective fresh-session recall",
+  "evidenceSources": [
+    "user-provided fresh-session reply after project-A source deletion procedure",
+    "read-only configured dsh-memory flags",
+    "read-only memory_items, audit_events, tombstones, extractions, source_segments, scope_epochs, snapshots, budget_ledger and memory_usage"
+  ],
+  "policy": {
+    "globalUse": false,
+    "globalGenerate": false,
+    "projectUse": true,
+    "projectGenerate": false,
+    "consent": true,
+    "dailyTokens": 100000
+  },
+  "deletedSource": {
+    "id": "f72d15434b369252673e48a6acb59c5bc9c29fb6436104477bb6b37667476fee",
+    "scope": "a23fb236-8a24-42db-8144-aed243567dec",
+    "removeAuditTime": 1791104292612,
+    "tombstoneTime": 1791104292611,
+    "sourceMetadataRetained": true,
+    "remainingExtractions": 0,
+    "removedFromCurrentSnapshotFileList": true
+  },
+  "projectEpoch": {
+    "before": 5,
+    "after": 6
+  },
+  "expiredDependentRecord": {
+    "id": "39dd1f44-b890-49fc-86b2-247afb5a8ff1",
+    "previousRevision": 1,
+    "revision": 2,
+    "status": "expired",
+    "sources": [],
+    "updatedAt": 1791104292612
+  },
+  "retainedUnrelatedRecord": {
+    "id": "debf911e-dc7d-44b6-b323-238132f28cc4",
+    "revision": 1,
+    "status": "suggested",
+    "createdAt": 1791100337876,
+    "updatedAt": 1791100337876,
+    "sourceCount": 2,
+    "sharesDeletedSource": false
+  },
+  "freshSession": {
+    "id": "session-adc395b3-c7d8-4451-b438-3406064e72d5",
+    "reserved": 0,
+    "settled": 498,
+    "sharedSessionEvidenceLimit": 1024,
+    "memoryUsageCount": 1,
+    "usedOnlyRetainedDatabaseRecord": true,
+    "noExpiredIntegrationRecordUsage": true,
+    "userReplyReturnsDatabaseConventionButNotIntegrationConvention": true
+  },
+  "limits": {
+    "individualToolResponsesNotCaptured": true,
+    "sourceLogicalExclusionNotClaimedAsPhysicalErasure": true,
+    "originalChatHistoryNotClaimedAsDeleted": true
+  },
+  "remaining": {
+    "desktopScopeClear": "NOT_RUN",
+    "realRemote": "BLOCKED",
+    "overall": "pending acceptance"
+  },
+  "agentActions": {
+    "credentialsRead": false,
+    "realModelCalled": false,
+    "userDatabaseOrProfileModified": false,
+    "packageChanged": false,
+    "publicationTarget": "Gitea only"
+  }
+}
