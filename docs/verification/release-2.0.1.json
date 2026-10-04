@@ -1,0 +1,28 @@
+{
+  "version": "2.0.1",
+  "tag": "V2.0.1",
+  "hostVersion": "0.2.0-rc.2",
+  "localVerification": "PASS",
+  "build": "PASS",
+  "typecheck": "PASS",
+  "automatedTests": {"passed": 16, "failed": 0},
+  "readme": {
+    "rootAndPluginCopiesMatch": true,
+    "upgradeAndRollbackSectionRemoved": true,
+    "downloadAndVerificationSectionAbsent": true
+  },
+  "installation": {
+    "isolatedLocalGit": "PASS",
+    "finalTarball": "PASS",
+    "bundleSelected": true,
+    "installedRuntimeAndReadmeMatch": true,
+    "actualLoopbackWebSettings": "PASS",
+    "actualMemoryRpcStatus": 200
+  },
+  "installedDesktop": "NOT_RUN",
+  "realModel": "NOT_RUN",
+  "crossMachineRemote": "NOT_RUN",
+  "automaticUpgrade": "NOT_IMPLEMENTED",
+  "automaticRollback": "NOT_IMPLEMENTED",
+  "publicationVerification": "recorded separately after upload"
+}

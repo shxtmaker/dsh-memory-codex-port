@@ -30,3 +30,6 @@ await build({entryPoints:{index:'src/index.ts',engine:'src/engine.ts','worker-cl
 const client=await build({entryPoints:['src/client/index.ts'],bundle:true,write:false,format:'cjs',platform:'browser',target:'es2022',external:['react','@deepseek-ai/cordis','@deepseek-ai/dsh-client-ui-slots'],minify:true})
 await writeFile(join(lib,'client.js'),`window.__ModuleLoader__.load({id:"dsh-memory-local",factory:(require)=>{var module={exports:{}};var exports=module.exports;\n${client.outputFiles[0].text}\nreturn module.exports;}});\n`)
 console.log('Built Host, SQLite Worker, lazy-CJS Client and strict Typert Remote for '+manifest.dsh.engines.dsh)
+
+// 仓库根目录发布同一份已构建插件，Git 安装无需执行依赖脚本。
+await cp(lib,resolve(root,'../../lib'),{recursive:true})

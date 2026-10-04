@@ -1,0 +1,32 @@
+{
+  "version": "0.2.1",
+  "status": "PASS",
+  "scope": "isolated local Git installation and loopback Web Host",
+  "hostVersion": "0.2.0-rc.2",
+  "originalPublicGitInstall": {
+    "reproduced": true,
+    "rootManifestMissing": true,
+    "outcome": "plain dependency without dsh.bundle"
+  },
+  "fixedGitInstallation": {
+    "bundleSelected": true,
+    "installedVersion": "0.2.1",
+    "actualSettingsPage": true,
+    "actualMemoryRpcStatus": 200,
+    "actualWritableOverview": true,
+    "clientErrors": 0,
+    "installationBuildScriptsRequired": false
+  },
+  "build": "PASS",
+  "typecheck": "PASS",
+  "automatedTests": {"passed": 16, "failed": 0},
+  "publicFixedGitInstallation": "NOT_RUN",
+  "installedDesktop": "NOT_RUN",
+  "automaticUpgrade": "NOT_IMPLEMENTED",
+  "automaticRollback": "NOT_IMPLEMENTED",
+  "publication": "NOT_PUBLISHED",
+  "tests": [
+    "implementation/dsh-memory/tests/git-install.test.mjs",
+    "implementation/dsh-memory/tests/git-package.mjs"
+  ]
+}

@@ -32,8 +32,6 @@
     "lib",
     "cordis.patch.yml",
     "README.md",
-    "ACCEPTANCE.md",
-    "IMPLEMENTATION_STATUS.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md"
   ],
@@ -55,27 +53,14 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.host.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "build": "node build/build.mjs",
-    "test": "node --test tests/acceptance.test.mjs tests/production-source.mjs tests/background-routing.mjs tests/model-route.test.mjs tests/official-default.mjs tests/usage-statistics.test.mjs tests/git-install.test.mjs",
-    "test:host": "node tests/host.mjs",
-    "test:web": "node tests/web.mjs",
-    "pack:local": "npm pack --pack-destination artifacts"
+    "build": "npm --prefix implementation/dsh-memory run build",
+    "test": "npm --prefix implementation/dsh-memory test",
+    "typecheck": "npm --prefix implementation/dsh-memory run typecheck"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.4",
     "@deepseek-ai/schemastery": "3.18.4",
     "@deepseek-ai/dsh-typert-protocol": "0.2.0-rc.2",
     "zod": "^4.0.0"
-  },
-  "devDependencies": {
-    "@deepseek-ai/dsh": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-typert-generator": "0.2.0-rc.2",
-    "@types/node": "^24.0.0",
-    "@types/react": "^18.3.0",
-    "typescript": "^6.0.3",
-    "esbuild": "^0.27.0",
-    "react": "18.3.1",
-    "@playwright/test": "^1.63.0"
   }
 }
