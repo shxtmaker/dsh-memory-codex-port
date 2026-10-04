@@ -1,0 +1,55 @@
+{
+  "version": "0.1.9",
+  "date": "2026-10-04",
+  "timezone": "Asia/Shanghai",
+  "environment": "user-operated isolated Windows Desktop and Host 0.2.0-rc.2",
+  "status": "PASS",
+  "criterion": "A2 real project A/B scope isolation with global disabled",
+  "evidenceSources": [
+    "user screenshot in project-B fresh session",
+    "read-only projects, memory_items, search_terms, budget_ledger and memory_usage",
+    "earlier positive project-A recall evidence"
+  ],
+  "projects": {
+    "differentCanonicalRoots": true,
+    "differentProjectUUIDs": true,
+    "sameExecutionTarget": true
+  },
+  "projectA": {
+    "conventionAndMarkerPreviouslyRecalled": true
+  },
+  "projectB": {
+    "memoryItemCount": 0,
+    "indexQueries": [
+      "集成测试",
+      "测试路径",
+      "验收",
+      "MEM-A-019"
+    ],
+    "allQueriesReturnNoBRecord": true,
+    "freshSessionReserved": 0,
+    "freshSessionSettled": 0,
+    "noARecordInBUsageLedger": true,
+    "userResponseDoesNotReturnAPathMarkerOrSource": true
+  },
+  "policy": {
+    "projectUse": true,
+    "projectGenerate": false,
+    "globalUse": false,
+    "globalGenerate": false
+  },
+  "globalSharing": "NOT_RUN; global reading disabled; empty B result is not proof of empty global store",
+  "remaining": {
+    "realGlobalSharing": "NOT_RUN",
+    "fullDesktopManagement": "NOT_RUN",
+    "realRemote": "BLOCKED",
+    "overall": "pending acceptance"
+  },
+  "agentActions": {
+    "credentialsRead": false,
+    "realModelCalled": false,
+    "userDatabaseOrProfileModified": false,
+    "packageChanged": false,
+    "publicationTarget": "Gitea only"
+  }
+}
