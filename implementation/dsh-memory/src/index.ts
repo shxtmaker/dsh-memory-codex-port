@@ -91,14 +91,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     model:async(prompt,maxTokens,signal)=>{
       const route={provider:config.provider.get(),model:config.model.get()}
       const prepared=await ctx.llm.prepareCall({...route,maxTokens},signal)
-      let text='',usage:number|null=null,failed=false
+      let text='',usage:number|null=null,finish:string|undefined
       for await(const chunk of prepared.stream({...prepared.config,messages:[{role:'user',content:[{type:'text',text:prompt}]}],signal})){
         if(chunk.type==='text-delta')text+=chunk.text
         if(text.length>20000)throw new Error('OUTPUT_TOO_LARGE')
         if(chunk.type==='usage')usage=chunk.usage.totalTokens??chunk.usage.inputTokens+chunk.usage.outputTokens+(chunk.usage.cacheReadTokens??0)+(chunk.usage.cacheWriteTokens??0)
-        if(chunk.type==='finish'&&['error','aborted'].includes(chunk.reason.kind))failed=true
+        if(chunk.type==='finish')finish=['stop','max-tokens','error','aborted','tool-calls'].includes(chunk.reason.kind)?chunk.reason.kind:'other'
       }
-      return {text:failed?'MODEL_FAILURE':redact(text),usage}
+      return {text:redact(text),usage,finish}
     },
   })
   function policy():void {

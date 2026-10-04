@@ -16,6 +16,6 @@ export const Config = z.object({
   consent: z.boolean().default(false).volatile(), provider: z.string().default('').volatile(), model: z.string().default('').volatile(),
   idleMinutes: z.number().min(10).max(1440).default(10).volatile(),
   consolidationMinutes: z.number().min(30).max(1440).default(30).volatile(),
-  dailyTokens: z.number().min(0).max(100000).step(1).default(20000).volatile(),
+  dailyTokens: z.number().min(0).max(100000).step(1).default(100000).volatile(),
   outputTokens: z.number().min(256).max(4096).step(1).default(1024).volatile(),
 })

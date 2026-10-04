@@ -2,12 +2,12 @@
 
 为 DeepSeek Harness 提供 Codex 式双阶段后台记忆：先从原生会话日志提炼，再按差异整理为可检索记忆。提供全局与项目范围、SQLite 存储、Markdown 快照和「设置 → 记忆」管理页面。
 
-**当前版本：0.1.6。验收状态：待完成验收。** 本版修复后台提炼访问原生日志时遗漏 `sessionPersistence` 依赖而导致的 `SOURCE_UNAVAILABLE`。新增回归验收直接运行插件自身的后台链路，并使用宿主默认 Zstandard 压缩日志；固定模型提炼、整理已通过。用户截图证明隔离 Desktop 页面可见；修复包的 Desktop 升级、完整交互和真实模型闭环仍待验收。
+**当前版本：0.1.7。验收状态：待完成验收。** 新配置档初始后台额度为 10000 tokens，已有配置档可手动补充至 10000；每日后台上限默认 100000 tokens。保留原生日志依赖修复，并新增模型格式、schema、输出截断和实际失败用量诊断。用户的真实提炼调用已发生，但返回校验失败；真实提炼、整理闭环仍待完成，不能以固定模型测试替代。
 
 - GitHub：[shxtmaker/dsh-memory-codex-port](https://github.com/shxtmaker/dsh-memory-codex-port)
 - Gitea：[lqy/dsh-memory-codex-port](http://192.168.3.100:3300/lqy/dsh-memory-codex-port)
-- 安装包：[dist/dsh-memory-local-0.1.6.tgz](dist/dsh-memory-local-0.1.6.tgz)
-- 完整源码包：[dist/dsh-memory-codex-port-0.1.6-source.zip](dist/dsh-memory-codex-port-0.1.6-source.zip)
+- 安装包：[dist/dsh-memory-local-0.1.7.tgz](dist/dsh-memory-local-0.1.7.tgz)
+- 完整源码包：[dist/dsh-memory-codex-port-0.1.7-source.zip](dist/dsh-memory-codex-port-0.1.7-source.zip)
 - 校验值：[dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)
 - [验收记录](implementation/dsh-memory/ACCEPTANCE.md) · [实施状态](implementation/dsh-memory/IMPLEMENTATION_STATUS.md)
 
@@ -31,8 +31,8 @@
 | DeepSeek Harness Host | 严格匹配 `0.2.0-rc.2` |
 | Node.js | 24 或更高，需支持 `node:sqlite` 与 Worker |
 | 已实测环境 | Windows；匹配版本 npm Web/原生内核；已装 Desktop 0.2.0-rc.2 的独立 profile |
-| Desktop 可见页面 | PASS：用户提供隔离 Desktop 页面截图；完整管理交互、0.1.6 升级待验收 |
-| 真实模型 | BLOCKED：原尝试在模型调用前失败；修复包待重验，仍需足够的实际 3% credit |
+| Desktop 可见页面 | PASS：用户提供隔离 Desktop 页面截图；完整管理交互、0.1.7 升级待验收 |
+| 真实模型 | FAIL：已调用实际路由，返回校验失败；0.1.7诊断与闭环待重验 |
 | 非 loopback Host | BLOCKED：该版本 CLI 拒绝非 loopback 监听 |
 
 不要在其他 Host 版本使用兼容豁免强装。当前包不声明支持 `0.2.1-alpha.1`。不要求修改 agent-loop、Desktop 主进程、preload 或内置 settings shell；不启动独立服务，不运行 Codex，也不访问 Codex 数据库。
@@ -41,7 +41,7 @@
 
 ### Desktop
 
-确认应用和 Host 均为 `0.2.0-rc.2`，登录后通过应用自己的插件管理入口安装 `dsh-memory-local-0.1.6.tgz`。Desktop 使用自己的 bundled runtime、pnpm 和 desktop profile；不要用系统 npm 代替它的包管理器。
+确认应用和 Host 均为 `0.2.0-rc.2`，登录后通过应用自己的插件管理入口安装 `dsh-memory-local-0.1.7.tgz`。Desktop 使用自己的 bundled runtime、pnpm 和 desktop profile；不要用系统 npm 代替它的包管理器。
 
 安装后进入「设置 → 记忆」。开关和发送许可默认关闭。人工记忆、编辑和浏览不依赖模型；自动生成需要先配置宿主模型路由，并在记忆高级设置中填写 provider/model、确认发送许可。`fixture` 仅是测试适配器，不能作为正式路由。
 
@@ -55,7 +55,7 @@ Set-Location dsh-memory-codex-port
 npm ci --prefix runtime-v0.2.0-rc.2
 
 $repoRoot = (Get-Location).Path
-$bundlePath = (Resolve-Path 'dist/dsh-memory-local-0.1.6.tgz').Path
+$bundlePath = (Resolve-Path 'dist/dsh-memory-local-0.1.7.tgz').Path
 $env:DSH_HOME = Join-Path $repoRoot '.review-home'
 Set-Location runtime-v0.2.0-rc.2
 node node_modules/@deepseek-ai/dsh/lib/bin.js --profile memory-review --from-default-profile web --dump-config
@@ -84,7 +84,9 @@ node node_modules/@deepseek-ai/dsh/lib/bin.js --profile memory-review --no-open 
 
 全局和当前项目共享每会话预算周期累计 1024 的直接证据额度。正文、引用和封装按 UTF-8 字节保守扣额；相同 revision 去重，重启和自然压缩不重置。当前没有自动重置周期功能。稳定策略和工具 schema 成本另外记录；1024 不是全部 token 成本。模型主动读记忆仍可能增加工具轮次及后续请求成本。
 
-后台并发固定为 1，默认日额度 20000 tokens。只有前台实际 usage 按 3% 积累 credit，没有初始透支。调用前预留输入和最大输出；失败和一次格式重试分别计费。缺 credit 时等待；未知 usage 或失去租约且不能核算时保守扣预留并暂停，不自动恢复透支。
+后台并发固定为 1，默认每日上限 100000 tokens。首次绑定的新记忆配置档获得一次 10000 tokens 初始额度，已有配置档升级不自动授予；高级设置可确认“补充至10000 tokens”。初始授予、人工补充和前台实际 usage 的 3% 累计分别记账，刷新或重启不会补满。
+
+这些额度是插件调用预算，实际模型调用仍消耗供应商额度。调用前预留输入和最大输出；失败和一次格式重试分别计费，并纳入每日上限。处理中显示的日用量包含预留，完成后按实际 usage 结算。运行中或未知用量暂停时不能手动补充；补充不会清除已用日额度、历史失败、重试次数或暂停状态。缺可用额度时等待，不默认透支。
 
 ## 存储与隔离
 
@@ -102,7 +104,9 @@ Capture 保存有界来源元数据，不建立第二套完整聊天日志。模
 
 升级前退出 Host，备份对应记忆目录和 profile 配置/锁文件。不要在运行时只复制 state.sqlite 而漏掉 WAL。
 
-从 0.1.4/0.1.5 升级到 0.1.6 后，原 `SOURCE_UNAVAILABLE` 失败任务保留，不会自动重试或扫描旧历史。请保持同一隔离 home/profile，在启用项目生成后使用新会话发送一个新样本。仅项目验收时关闭全局生成；credit 不足应记录为等待额度，不修改数据库或提高预算。
+从旧版升级后，记忆、已用日额度和失败记录保留，不扫描旧历史。原 SOURCE_UNAVAILABLE 失败任务不自动重试；已处于等待额度的格式重试任务仍受最多两次尝试限制。已有配置档可在高级设置手动补充额度；默认每日上限变为100000，已明确保存的旧上限保留，可用“保存每日上限”调整。
+
+本轮预算变化由用户明确要求；不以补充额度作为真实模型通过证据。旧 MODEL_OR_SCHEMA_FAILURE 记录没有模型正文，无法追溯具体字段错误。升级后新尝试显示 MODEL_INVALID_JSON、MODEL_SCHEMA_FAILURE、MODEL_OUTPUT_TRUNCATED、MODEL_CALL_FAILURE 或 INVALID_SOURCE_REF，以及不含正文的校验路径和最近一次实际用量。保持同一隔离 home/profile，先完成一次可核验提炼与整理，再测试新会话读取。
 
 - Web：在匹配运行时目录使用 `node node_modules/@deepseek-ai/dsh/lib/bin.js plugin --profile memory-review add <新包实际路径>`，随后重启同 home/profile。
 - Desktop：使用应用自己的插件管理路径升级。

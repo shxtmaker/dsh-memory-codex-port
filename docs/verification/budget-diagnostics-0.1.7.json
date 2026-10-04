@@ -1,0 +1,60 @@
+{
+  "version": "0.1.7",
+  "date": "2026-10-04",
+  "hostVersion": "0.2.0-rc.2",
+  "environment": "Windows, isolated homes and profiles, fixed model adapters",
+  "policyAuthorization": {
+    "newProfileInitialCredit": 10000,
+    "existingProfile": "manual top-up to 10000; no automatic migration grant",
+    "dailyDefault": 100000,
+    "savedDailyOverride": "preserved until explicitly changed",
+    "foregroundCreditRate": 0.03,
+    "noRefillOnRefreshOrRestart": true,
+    "noDefaultOverdraft": true
+  },
+  "checks": {
+    "build": "PASS",
+    "typecheck": "PASS",
+    "necessaryTests": { "status": "PASS", "count": 8 },
+    "nativeHostFixedModel": "PASS",
+    "actualLoopbackWeb": "PASS",
+    "creditAndDiagnosticRegression": "reproduced before change, passed after change",
+    "actualPageManualTopUp": "PASS",
+    "actualPageDailyEditAndSave": "PASS",
+    "refreshAndRestartDoNotRefill": "PASS",
+    "readOnlyTopUpDenied": "PASS (Host permission fixture)",
+    "unknownUsagePausePreserved": "PASS",
+    "inFlightTopUpDenied": "PASS",
+    "failureAndRetryChargesPreserved": "PASS"
+  },
+  "pageRegression": {
+    "firstAttempt": "FAIL: editing daily input during asynchronous top-up refresh could be overwritten",
+    "fix": "disable daily input while page operation is busy",
+    "secondAttempt": "PASS; original assertions retained"
+  },
+  "diagnostics": {
+    "codes": [ "MODEL_INVALID_JSON", "MODEL_SCHEMA_FAILURE", "MODEL_OUTPUT_TRUNCATED", "MODEL_CALL_FAILURE" ],
+    "stored": [ "known attempt usage", "whitelisted finish reason", "fixed schema field paths and issue codes" ],
+    "modelBodyStored": false,
+    "strictSchemaAndSourceValidationRetained": true
+  },
+  "realModelHistory": {
+    "version": "0.1.6",
+    "source": "user-operated isolated Desktop and read-only ledger check",
+    "status": "FAIL",
+    "settledTokens": 1453,
+    "error": "MODEL_OR_SCHEMA_FAILURE",
+    "exactCause": "unknown; response body and schema diagnostics were not saved"
+  },
+  "remaining": {
+    "realModel0.1.7": "NOT_RUN",
+    "desktop0.1.7UpgradeAndFullInteraction": "NOT_RUN",
+    "nonLoopbackHost": "BLOCKED: Host rejects non-loopback binding",
+    "systemFileManager": "NOT_RUN",
+    "wanOrRealRemoteDesktop": "NOT_RUN",
+    "overall": "pending acceptance"
+  },
+  "userProfileModifiedByAgent": false,
+  "realModelCalledByAgent": false,
+  "credentialsRead": false
+}

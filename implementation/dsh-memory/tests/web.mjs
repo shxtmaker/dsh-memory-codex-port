@@ -3,6 +3,7 @@ import { execFile,spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { readFile,writeFile,mkdir } from 'node:fs/promises'
 import { resolve,join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import assert from 'node:assert/strict'
 import { chromium,expect } from '@playwright/test'
 const manifest=JSON.parse(await readFile('package.json','utf8'))
@@ -70,6 +71,32 @@ try {
   await command(['plugin','--profile',profile,'add',packagePath]);await writeFile(patch,profilePatch)
   url=await start('127.0.0.1',18438);origin=new URL(url).origin;await open(page,url);assert.equal((await memory(page,origin,{action:'list',scope:project.id})).length,1);assert.equal((await memory(page,origin,{action:'list',scope:'global'})).length,0)
   assert.equal(await page.getByRole('button',{name:'记忆',exact:true}).count(),1)
+  // 复用当前验收服务；仅在隔离home建立一个升级前已绑定的空配置档。
+  await stop()
+  const nativeDb=new DatabaseSync(join(home,'memory','native-fixture','state.sqlite'),{readOnly:true}),identity=nativeDb.prepare('SELECT owner,trust FROM memory_profiles').get();nativeDb.close()
+  const legacyRoot=join(home,'memory','grant-legacy-fixture');await mkdir(legacyRoot)
+  const legacyDb=new DatabaseSync(join(legacyRoot,'state.sqlite'))
+  legacyDb.exec('CREATE TABLE memory_profiles(id TEXT PRIMARY KEY,owner TEXT NOT NULL,trust TEXT NOT NULL)')
+  legacyDb.prepare('INSERT INTO memory_profiles VALUES(?,?,?)').run('grant-legacy-fixture',identity.owner,identity.trust);legacyDb.close()
+  assert(profilePatch.includes('memoryProfileId: native-fixture'))
+  await writeFile(patch,profilePatch.replace('memoryProfileId: native-fixture','memoryProfileId: grant-legacy-fixture'))
+  url=await start('127.0.0.1',18438);origin=new URL(url).origin;await open(page,url)
+  assert.equal((await memory(page,origin,{action:'overview'})).budget.credit,0)
+  await page.getByText('高级设置与后台状态',{exact:true}).click()
+  const topUp=page.getByRole('button',{name:'补充至10000 tokens',exact:true})
+  await expect(topUp).toBeEnabled();await topUp.click();await expect(topUp).toBeDisabled()
+  overview=await memory(page,origin,{action:'overview'});assert.equal(overview.budget.credit,10000);assert.equal(overview.budget.initialGranted,0);assert.equal(overview.budget.manualGranted,10000)
+  const dailyInput=page.getByRole('spinbutton',{name:'每日后台上限（tokens）',exact:true})
+  await expect(page.getByRole('button',{name:'保存每日上限',exact:true})).toBeEnabled()
+  await expect(dailyInput).toHaveValue('100000');await dailyInput.fill('50000')
+  await page.getByRole('button',{name:'保存每日上限',exact:true}).click();await expect(page.getByText(/今日后台已用：0 \/ 50000 tokens/)).toBeVisible()
+  await dailyInput.fill('100000');await page.getByRole('button',{name:'保存每日上限',exact:true}).click();await expect(page.getByText(/今日后台已用：0 \/ 100000 tokens/)).toBeVisible()
+  await page.getByRole('button',{name:'刷新',exact:true}).click();assert.equal((await memory(page,origin,{action:'overview'})).budget.credit,10000)
+  await page.screenshot({path:'evidence/web-credit.png',fullPage:true})
+  await stop();url=await start('127.0.0.1',18438);origin=new URL(url).origin;await open(page,url)
+  assert.equal((await memory(page,origin,{action:'overview'})).budget.credit,10000)
+  result.push({name:'A1/A4 credit and daily limit',status:'PASS',legacyNoAutomaticGrant:true,pageManualTopUp:true,grantsSeparatelyRecorded:true,dailyDefault:100000,dailyEdit:true,noRefillOnRefreshOrRestart:true})
+  await stop();await writeFile(patch,profilePatch)
   await writeFile('evidence/package-lifecycle.json',JSON.stringify({status:'PASS',home,profile,hostVersion:manifest.dsh.engines.dsh,package:packagePath,version:manifest.version,upgradedFrom:previousPackage??null,uninstallRemovesPage:true,retainsSQLite:true,reinstallReadsSameData:true},null,2))
   await writeFile('evidence/web-acceptance.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2))
 }finally{await browser?.close();await stop();await writeFile('evidence/web-host.log',logs.join('\n').replace(/token=[A-Za-z0-9_-]+/g,'token=[REDACTED]'))}

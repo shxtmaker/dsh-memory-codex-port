@@ -1,10 +1,23 @@
 import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
+import { z } from 'zod'
 import { extractionSchema, proposalSchema, redact, tokens } from './shared.ts'
 import { StorageWorker } from './storage/worker-client.ts'
 import type { Job, MemoryItem, Source } from './contracts.ts'
 
-export interface ModelReply { text: string; usage: number | null }
+export interface ModelReply { text: string; usage: number | null; finish?: string }
+/** 诊断只含固定字段路径和校验类型，不包含供应商正文、错误原文或字段值。 */
+function modelFailure(error:unknown,reply:ModelReply|undefined):{code:string;diagnostic:string} {
+  if(reply?.finish==='max-tokens')return {code:'MODEL_OUTPUT_TRUNCATED',diagnostic:''}
+  if(reply?.finish==='error'||reply?.finish==='aborted')return {code:'MODEL_CALL_FAILURE',diagnostic:''}
+  if(error instanceof SyntaxError)return {code:'MODEL_INVALID_JSON',diagnostic:''}
+  if(error instanceof z.ZodError){
+    const fields=new Set(['raw_memory','rollout_summary','rollout_slug','items','scope','kind','title','content','status','source_refs','changes','op','id','revision','sources'])
+    const diagnostic=error.issues.slice(0,4).map(issue=>issue.path.map(part=>typeof part==='number'?part:fields.has(String(part))?part:'?').join('.')+':'+issue.code).join(', ')
+    return {code:'MODEL_SCHEMA_FAILURE',diagnostic}
+  }
+  return {code:error instanceof Error&&/^[A-Z_]+$/.test(error.message)?error.message:'MODEL_CALL_FAILURE',diagnostic:''}
+}
 export interface EngineOptions {
   consent: () => boolean; route: () => { provider: string; model: string }
   idleMs: () => number; intervalMs: () => number; dailyLimit: () => number; outputLimit: () => number
@@ -99,6 +112,8 @@ export class MemoryEngine {
         try {
           reply=await this.options.model(redact(prompt),outputLimit,modelSignal)
           modelSignal.throwIfAborted()
+          if(reply.finish==='max-tokens')throw new Error('MODEL_OUTPUT_TRUNCATED')
+          if(reply.finish==='error'||reply.finish==='aborted')throw new Error('MODEL_CALL_FAILURE')
           const parsed=JSON.parse(redact(reply.text)) as unknown
           if(job.kind==='extract'){
             const output=extractionSchema.parse(parsed)
@@ -112,12 +127,12 @@ export class MemoryEngine {
             const output=proposalSchema.parse(parsed)
             await this.storage.call('commitProposal',{id:job.id,fence:leased.fence,hash:inputHash,output},modelSignal)
           }
-          await this.storage.call('settleJob',{id:job.id,fence:leased.fence,usage:reply.usage,state:job.kind==='extract'&&!extractionSchema.parse(parsed).items.length?'succeeded_no_output':'succeeded'})
+          await this.storage.call('settleJob',{id:job.id,fence:leased.fence,usage:reply.usage,modelFinish:reply.finish,state:job.kind==='extract'&&!extractionSchema.parse(parsed).items.length?'succeeded_no_output':'succeeded'})
         }catch(error){
-          const code=error instanceof Error&&/^[A-Z_]+$/.test(error.message)?error.message:'MODEL_OR_SCHEMA_FAILURE'
+          const {code,diagnostic}=modelFailure(error,reply)
           this.lastError=code
           // 失败和重试各自收费；不透明的 usage 保守计预留并暂停后续自动任务。
-          await this.storage.call('settleJob',{id:job.id,fence:leased.fence,usage:reply?.usage??null,state:signal.aborted?'cancelled':leased.attempts>=2?'failed':'retry',error:code})
+          await this.storage.call('settleJob',{id:job.id,fence:leased.fence,usage:reply?.usage??null,modelFinish:reply?.finish,diagnostic,state:signal.aborted?'cancelled':leased.attempts>=2?'failed':'retry',error:code})
         }
       }catch {if(signal.aborted)return;this.lastError='SOURCE_UNAVAILABLE';await this.storage.call('failSource',{id:job.id}).catch(()=>{})}
     }

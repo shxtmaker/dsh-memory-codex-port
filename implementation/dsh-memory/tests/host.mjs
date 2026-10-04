@@ -88,6 +88,7 @@ try {
   capability.host='remote-fixture'
   const remoteOverview=JSON.parse((await ctx.memory.invoke({action:'overview',sessionId:second.agent.id},new AbortController().signal)).json);assert.equal(remoteOverview.writable,false);assert(remoteOverview.projects.some(p=>p.id===project.id))
   await assert.rejects(ctx.memory.invoke({action:'save',scope:'global',title:'拒绝',content:'拒绝'},new AbortController().signal),/READ_ONLY_CONNECTION/)
+  await assert.rejects(ctx.memory.invoke({action:'topUpCredit',requestId:randomUUID(),confirmation:'TOP_UP_CREDIT:10000'},new AbortController().signal),/READ_ONLY_CONNECTION/)
   await assert.rejects(ctx.memory.invoke({action:'list',scope:project.id},new AbortController().signal),/SCOPE_DENIED/)
   assert.equal(JSON.parse((await ctx.memory.invoke({action:'list',scope:project.id,sessionId:second.agent.id},new AbortController().signal)).json).length,1)
   capability.host='127.0.0.1'

@@ -11,8 +11,16 @@ const base=resolve('test-runs');await mkdir(base,{recursive:true})
 const digest=text=>createHash('sha256').update(text).digest('hex')
 const policy={global:{use:true,generate:true},projects:{use:true,generate:true}}
 const signal=()=>new AbortController().signal
-async function fixture(){
-  const root=await mkdtemp(join(base,'A-')),store=new StorageWorker(join(root,'memory'),'owner','host','fixture');await store.ready
+async function fixture({existing=true}={}){
+  const root=await mkdtemp(join(base,'A-'))
+  if(existing){
+    // 模拟升级前已绑定的配置档：新版本不能给已有配置档静默授予初始额度。
+    await mkdir(join(root,'memory'))
+    const db=new DatabaseSync(join(root,'memory','state.sqlite'))
+    db.exec('CREATE TABLE memory_profiles(id TEXT PRIMARY KEY,owner TEXT NOT NULL,trust TEXT NOT NULL)')
+    db.prepare('INSERT INTO memory_profiles VALUES(?,?,?)').run('fixture','owner','host');db.close()
+  }
+  const store=new StorageWorker(join(root,'memory'),'owner','host','fixture');await store.ready
   await store.call('policy',policy)
   const project=await store.call('project',{root:join(root,'project-A'),target:'host',name:'A'})
   const other=await store.call('project',{root:join(root,'project-B'),target:'host',name:'B'})
@@ -112,7 +120,7 @@ test('A4 3% 无透支、日额度、并发一、失败重试及未知 usage 暂�
     await engine.capture(src);await engine.tick();assert.equal((await f.store.call('overview',{})).jobs[0].state,'waiting-credit')
     await engine.credit('native-usage',1000000);await engine.credit('native-usage',1000000)
     assert.equal((await f.store.call('overview',{})).budget.credit,30000)
-    await engine.tick();let overview=await f.store.call('overview',{});assert.equal(overview.budget.used,100);assert.equal(overview.jobs[0].attempts,1)
+    await engine.tick();let overview=await f.store.call('overview',{});assert.equal(overview.budget.used,100);assert.equal(overview.jobs[0].attempts,1);assert.equal(overview.jobs[0].error,'MODEL_INVALID_JSON')
     // 仅将隔离夹具的时钟条件前移，生产退避规则不变。
     const db=new DatabaseSync(join(f.root,'memory','state.sqlite')),job=overview.jobs[0];job.retryAt=0;db.prepare('UPDATE jobs SET data=? WHERE id=?').run(JSON.stringify(job),job.id);db.close()
     await engine.tick();overview=await f.store.call('overview',{});assert.equal(overview.budget.used,200);assert.equal(overview.jobs[0].state,'failed')
@@ -123,7 +131,63 @@ test('A4 3% 无透支、日额度、并发一、失败重试及未知 usage 暂�
     await f.store.call('settleJob',{id:j1.id,fence:lease.fence,usage:null,state:'failed'})
     overview=await f.store.call('overview',{});assert.equal(overview.budget.used,700);assert.equal(overview.budget.paused,1)
     assert.equal(await f.store.call('lease',{id:j2.id,reserve:500,dailyLimit:20000}),null)
+    await assert.rejects(f.store.call('topUpCredit',{requestId:randomUUID(),confirmation:'TOP_UP_CREDIT:10000'}),/USAGE_UNKNOWN_PAUSED/)
   }finally{await engine.close()}
+})
+
+test('A4 新配置档初始10000、旧配置档手动补充、幂等和不自动补满',async()=>{
+  const fresh=await fixture({existing:false})
+  let reopened
+  try{
+    let value=await fresh.store.call('overview',{})
+    assert.equal(value.budget.credit,10000);assert.equal(value.budget.initialGranted,10000)
+    await fresh.store.close()
+    reopened=new StorageWorker(join(fresh.root,'memory'),'owner','host','fixture');await reopened.ready
+    assert.equal((await reopened.call('overview',{})).budget.credit,10000)
+  }finally{await reopened?.close();await fresh.store.close()}
+  const legacy=await fixture()
+  try{
+    assert.equal((await legacy.store.call('overview',{})).budget.credit,0)
+    await assert.rejects(legacy.store.call('topUpCredit',{requestId:randomUUID(),confirmation:'wrong'}))
+    const requestId=randomUUID(),args={requestId,confirmation:'TOP_UP_CREDIT:10000'}
+    await legacy.store.call('topUpCredit',args)
+    assert.equal((await legacy.store.call('overview',{})).budget.manualGranted,10000)
+    const job=await legacy.store.call('capture',{source:{id:randomUUID(),sessionId:randomUUID(),project:legacy.project.id,start:0,end:0,hash:'fixture',updatedAt:Date.now(),excluded:false},idleMs:0})
+    const lease=await legacy.store.call('lease',{id:job.id,reserve:2000,dailyLimit:20000})
+    assert(lease)
+    await assert.rejects(legacy.store.call('topUpCredit',{requestId:randomUUID(),confirmation:'TOP_UP_CREDIT:10000'}),/BACKGROUND_BUSY/)
+    await legacy.store.call('settleJob',{id:job.id,fence:lease.fence,usage:100,state:'failed'})
+    await legacy.store.call('topUpCredit',args)
+    let value=await legacy.store.call('overview',{});assert.equal(value.budget.credit,9900)
+    assert.equal(value.budget.used,100);assert.equal(value.budget.manualGranted,10000)
+    await legacy.store.call('topUpCredit',{requestId:randomUUID(),confirmation:'TOP_UP_CREDIT:10000'})
+    value=await legacy.store.call('overview',{});assert.equal(value.budget.credit,10000);assert.equal(value.budget.manualGranted,10100)
+    await legacy.store.call('credit',{id:'actual-usage',tokens:100})
+    value=await legacy.store.call('overview',{});assert.equal(value.budget.foregroundEarned,3);assert.equal(value.budget.credit,10003)
+    await legacy.store.close()
+    const again=new StorageWorker(join(legacy.root,'memory'),'owner','host','fixture')
+    try{await again.ready;assert.equal((await again.call('overview',{})).budget.credit,10003)}finally{await again.close()}
+  }finally{await legacy.store.close()}
+})
+
+test('A5 模型格式和截断诊断不记录敏感正文，实际失败用量保留',async()=>{
+  for(const [reply,code,path] of [
+    [{text:'sk-FAKE0123456789 invalid JSON',usage:37},'MODEL_INVALID_JSON',''],
+    [{text:JSON.stringify({rollout_summary:'摘要',rollout_slug:'test',items:[{...facts[1],source_refs:[]}]}),usage:37},'MODEL_SCHEMA_FAILURE','source_refs'],
+    [{text:'{}',usage:37,finish:'max-tokens'},'MODEL_OUTPUT_TRUNCATED',''],
+  ]){
+    const f=await fixture(),text=JSON.stringify([{seq:0,role:'user',text:'项目决策'}])
+    const engine=engineFor(f.store,{readSource:async()=>text,model:async()=>reply})
+    try{
+      await engine.credit('fixture-usage',1000000)
+      await engine.capture({id:randomUUID(),sessionId:randomUUID(),project:f.project.id,start:0,end:0,hash:digest(text),updatedAt:Date.now(),excluded:false})
+      await engine.tick()
+      const value=await f.store.call('overview',{}),job=value.jobs[0]
+      assert.equal(job.error,code);assert.equal(job.attemptUsage,37);assert.equal(value.budget.used,37)
+      if(path)assert(job.diagnostic.includes(path))
+      assert(!JSON.stringify(job).includes('FAKE0123456789'))
+    }finally{await engine.close()}
+  }
 })
 test('A5 Worker 故障、身份拒绝、快照重建、路径拒绝与可停止生命周期',async()=>{
   const f=await fixture()

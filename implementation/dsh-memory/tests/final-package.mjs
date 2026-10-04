@@ -70,7 +70,12 @@ try {
   const overview = JSON.parse(rpc.value.json); assert(overview.writable)
   assert.deepEqual(errors, [])
   await page.screenshot({ path: 'evidence/final-package-settings.png', fullPage: true })
-  const result = { status: 'PASS', hostVersion: manifest.dsh.engines.dsh, environment: 'isolated loopback Web', package: packagePath, version: manifest.version, sha256: hash(bytes), fileCount: finalFiles.size, builtFilesIdenticalToAcceptedCandidate: built.length, allInstalledFilesMatchFinalPackage: true, actualSettingsPage: true, actualRemote200: true, home, profile, realModel: 'BLOCKED', desktop: 'BLOCKED', realRemote: 'BLOCKED' }
+  await page.locator('.dm-page details summary').click()
+  const daily = page.getByLabel('每日后台上限（tokens）')
+  await daily.scrollIntoViewIfNeeded()
+  assert.equal(await daily.inputValue(), '100000')
+  await page.screenshot({ path: 'evidence/final-package-credit.png', fullPage: true })
+  const result = { status: 'PASS', hostVersion: manifest.dsh.engines.dsh, environment: 'isolated loopback Web', package: packagePath, version: manifest.version, sha256: hash(bytes), fileCount: finalFiles.size, builtFilesIdenticalToAcceptedCandidate: built.length, allInstalledFilesMatchFinalPackage: true, actualSettingsPage: true, actualRemote200: true, actualDailyDefault: 100000, home, profile, realModel: 'NOT_RUN', desktop: 'NOT_RUN', realRemote: 'BLOCKED' }
   await writeFile('evidence/final-package.json', JSON.stringify(result, null, 2)); console.log(JSON.stringify(result, null, 2))
   await writeFile('artifacts/SHA256SUMS.txt', hash(bytes) + `  dsh-memory-local-${manifest.version}.tgz\n`)
 } finally {
