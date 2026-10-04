@@ -2,14 +2,14 @@
 
 为 DeepSeek Harness 提供 Codex 式双阶段后台记忆：先从原生会话日志提炼，再按差异整理为可检索记忆。提供全局与项目范围、SQLite 存储、Markdown 快照和「设置 → 记忆」管理页面。
 
-**当前版本：0.1.8。验收状态：待完成验收。** 后台提炼和整理在模型明确支持 `off` 时关闭推理，不继承默认 High；前台模型设置保持原样。单次后台最大输出仍为1024，新配置档初始10000、已有配置档手动补充至10000、每日默认100000。用户的0.1.7真实提炼因输出截断失败；0.1.8真实闭环仍待验证，不能以固定模型测试替代。
+**当前版本：0.1.9。验收状态：待完成验收。** 整理协议采用合法 JSON 示例，明确新增时省略 id/revision，更新与撤销时使用既有记录的整数 revision。后台在模型明确支持 off 时关闭推理；单次后台最大输出仍为 1024，新配置档初始额度 10000，已有配置档手动补充至 10000，每日默认上限 100000。用户的 0.1.8 真实提炼已成功，整理因 revision 类型校验失败；0.1.9 真实闭环仍待验证。
 
 当前发行源为Gitea；GitHub镜像可能落后于当前版本。
 
 - GitHub：[shxtmaker/dsh-memory-codex-port](https://github.com/shxtmaker/dsh-memory-codex-port)
 - Gitea：[lqy/dsh-memory-codex-port](http://192.168.3.100:3300/lqy/dsh-memory-codex-port)
-- 安装包：[dist/dsh-memory-local-0.1.8.tgz](http://192.168.3.100:3300/lqy/dsh-memory-codex-port/src/branch/main/dist/dsh-memory-local-0.1.8.tgz)
-- 完整源码包：[dist/dsh-memory-codex-port-0.1.8-source.zip](http://192.168.3.100:3300/lqy/dsh-memory-codex-port/src/branch/main/dist/dsh-memory-codex-port-0.1.8-source.zip)
+- 安装包：[dist/dsh-memory-local-0.1.9.tgz](http://192.168.3.100:3300/lqy/dsh-memory-codex-port/src/branch/main/dist/dsh-memory-local-0.1.9.tgz)
+- 完整源码包：[dist/dsh-memory-codex-port-0.1.9-source.zip](http://192.168.3.100:3300/lqy/dsh-memory-codex-port/src/branch/main/dist/dsh-memory-codex-port-0.1.9-source.zip)
 - 校验值：[dist/SHA256SUMS.txt](http://192.168.3.100:3300/lqy/dsh-memory-codex-port/src/branch/main/dist/SHA256SUMS.txt)
 - [验收记录](http://192.168.3.100:3300/lqy/dsh-memory-codex-port/src/branch/main/implementation/dsh-memory/ACCEPTANCE.md) · [实施状态](http://192.168.3.100:3300/lqy/dsh-memory-codex-port/src/branch/main/implementation/dsh-memory/IMPLEMENTATION_STATUS.md)
 
@@ -33,8 +33,8 @@
 | DeepSeek Harness Host | 严格匹配 `0.2.0-rc.2` |
 | Node.js | 24 或更高，需支持 `node:sqlite` 与 Worker |
 | 已实测环境 | Windows；匹配版本 npm Web/原生内核；已装 Desktop 0.2.0-rc.2 的独立 profile |
-| Desktop 可见页面 | PASS：0.1.7用户完整重启及手动补充已确认；完整管理交互、0.1.8 升级待验收 |
-| 真实模型 | FAIL：0.1.7两次输出截断共结算2752；0.1.8闭环待重验 |
+| Desktop 可见页面 | PASS：0.1.8 完整重启、页面与额度操作已确认；完整管理交互、0.1.9 升级待验收 |
+| 真实模型 | 0.1.8 提炼 PASS（468/447 tokens），整理 FAIL（revision 类型）；0.1.9 闭环待重验 |
 | 非 loopback Host | BLOCKED：该版本 CLI 拒绝非 loopback 监听 |
 
 不要在其他 Host 版本使用兼容豁免强装。当前包不声明支持 `0.2.1-alpha.1`。不要求修改 agent-loop、Desktop 主进程、preload 或内置 settings shell；不启动独立服务，不运行 Codex，也不访问 Codex 数据库。
@@ -43,7 +43,7 @@
 
 ### Desktop
 
-确认应用和 Host 均为 `0.2.0-rc.2`，登录后通过应用自己的插件管理入口安装 `dsh-memory-local-0.1.8.tgz`。Desktop 使用自己的 bundled runtime、pnpm 和 desktop profile；不要用系统 npm 代替它的包管理器。
+确认应用和 Host 均为 `0.2.0-rc.2`，登录后通过应用自己的插件管理入口安装 `dsh-memory-local-0.1.9.tgz`。Desktop 使用自己的 bundled runtime、pnpm 和 desktop profile；不要用系统 npm 代替它的包管理器。
 
 安装后进入「设置 → 记忆」。开关和发送许可默认关闭。人工记忆、编辑和浏览不依赖模型；自动生成需要先配置宿主模型路由，并在记忆高级设置中填写 provider/model、确认发送许可。`fixture` 仅是测试适配器，不能作为正式路由。
 
@@ -57,7 +57,7 @@ Set-Location dsh-memory-codex-port
 npm ci --prefix runtime-v0.2.0-rc.2
 
 $repoRoot = (Get-Location).Path
-$bundlePath = (Resolve-Path 'dist/dsh-memory-local-0.1.8.tgz').Path
+$bundlePath = (Resolve-Path 'dist/dsh-memory-local-0.1.9.tgz').Path
 $env:DSH_HOME = Join-Path $repoRoot '.review-home'
 Set-Location runtime-v0.2.0-rc.2
 node node_modules/@deepseek-ai/dsh/lib/bin.js --profile memory-review --from-default-profile web --dump-config

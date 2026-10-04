@@ -1,0 +1,78 @@
+{
+  "version": "0.1.9",
+  "date": "2026-10-04",
+  "hostVersion": "0.2.0-rc.2",
+  "environment": "Windows, isolated native Host and loopback Web; FIXTURE model",
+  "productionChange": {
+    "scope": "consolidation prompt only",
+    "examples": "valid JSON for add, update and revoke",
+    "add": "omit id and revision",
+    "updateAndRevoke": "copy existing id and positive integer revision",
+    "schemaRelaxation": false,
+    "permissionsChanged": false,
+    "budgetChanged": false,
+    "outputCap": 1024,
+    "reasoningPolicy": "off only when advertised by route",
+    "foregroundPolicyChanged": false
+  },
+  "regression": {
+    "command": "node tests/production-source.mjs --consolidation-contract",
+    "before": "FAIL: production consolidate failed: MODEL_SCHEMA_FAILURE; changes.0.revision:invalid_type",
+    "after": "PASS: actual plugin context, native compressed log, one extraction and one consolidation; invalid revision rejected",
+    "fixtureBoundary": "null revision is synthetic; real provider response body and actual offending value were not saved"
+  },
+  "checks": {
+    "build": "PASS",
+    "typecheck": "PASS",
+    "necessaryTests": {
+      "status": "PASS",
+      "count": 9
+    },
+    "nativeHost": "PASS (FIXTURE model)",
+    "actualCandidateWeb": "PASS",
+    "deadlineMs": 150.2,
+    "sqliteContentionMs": 150.2,
+    "nonLoopbackHost": "BLOCKED: CLI refuses binding; no override",
+    "actualPageCreditAndLifecycle": "PASS"
+  },
+  "userOperatedDesktop": {
+    "version": "0.1.8",
+    "completeRestart": "PASS",
+    "extract": "PASS",
+    "extractAttemptUsage": [
+      468,
+      447
+    ],
+    "extractFinish": "stop",
+    "consolidate": "FAIL",
+    "error": "MODEL_SCHEMA_FAILURE",
+    "diagnostic": "changes.0.revision:invalid_type",
+    "latestConsolidationAttemptUsage": [
+      625,
+      971
+    ],
+    "consolidationTaskStates": [
+      "failed after two attempts",
+      "cancelled after generation disabled"
+    ],
+    "dayUsed": 8710,
+    "remainingCredit": 3207.94,
+    "paused": false,
+    "automaticConsolidatedItem": "NOT_CONFIRMED; existing item is manual"
+  },
+  "remaining": {
+    "desktop0_1_9": "NOT_RUN",
+    "realModel0_1_9": "NOT_RUN",
+    "realModelOverall": "FAIL: consolidation not completed",
+    "realRemote": "BLOCKED",
+    "systemFileManager": "NOT_RUN",
+    "overall": "pending acceptance"
+  },
+  "agentActions": {
+    "credentialsRead": false,
+    "userProfileModified": false,
+    "realModelCalled": false,
+    "userCreditChanged": false,
+    "publicationTarget": "Gitea only"
+  }
+}
