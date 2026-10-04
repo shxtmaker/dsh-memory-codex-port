@@ -1,0 +1,60 @@
+{
+  "version": "0.1.9",
+  "date": "2026-10-04",
+  "timezone": "Asia/Shanghai",
+  "environment": "actual isolated Windows Desktop and Host 0.2.0-rc.2; native Windows File Explorer",
+  "status": "PASS",
+  "criterion": "A1 actual Desktop copy path, empty-snapshot Markdown export and system-directory browse fallback",
+  "evidenceSources": [
+    "computer-use observations of the actual Harness settings and memory browse window in this conversation",
+    "clipboard read only after clicking the plugin Copy Path button",
+    "native Windows File Explorer address-bar paste and observed file listing",
+    "read-only SQLite snapshots and export audit",
+    "contained snapshot and export file byte comparison"
+  ],
+  "copyPath": {
+    "scope": "global",
+    "generation": "materialized/global/1791104073775-85035386-9f22-4c98-876b-767e2cb5cb83",
+    "actualButtonClicked": true,
+    "clipboardMatchesObservedSnapshotDirectory": true,
+    "directoryExistsWithinIsolatedMemoryRoot": true
+  },
+  "export": {
+    "actualButtonClicked": true,
+    "file": "exports/global-d9ccc3f9-8119-43ee-8d32-1c0b2c98c0b4.md",
+    "scope": "global",
+    "auditAction": "export",
+    "auditTime": 1791106926218,
+    "bytes": 1,
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "byteIdenticalToCurrentMemoryMd": true,
+    "currentSnapshotBodyEmpty": true,
+    "resultPathVisibleInDesktop": true
+  },
+  "systemFileManager": {
+    "status": "PASS",
+    "mode": "copy directory path, paste into native File Explorer address bar and navigate",
+    "observedFiles": ["MEMORY.md", "memory_summary.md", "raw_memories.md"],
+    "pluginDirectSystemOpenButtonImplemented": false,
+    "pluginRevealStoreApiImplemented": false
+  },
+  "limits": {
+    "desktopNonemptySnapshotExportNotSeparatelyRun": true,
+    "nonemptyExportUsesExistingIsolatedWebEvidence": true,
+    "rawDesktopScreenshotsNotPublished": true,
+    "notARemoteOrWanTest": true,
+    "computerUseStoppedByUserEscapeAfterCompletedChecks": true,
+    "noFurtherComputerUseInputsAfterStop": true
+  },
+  "agentActions": {
+    "exportFileAndAuditCreated": true,
+    "memoryItemsModified": false,
+    "profileModified": false,
+    "budgetChanged": false,
+    "credentialsRead": false,
+    "realModelCalled": false,
+    "productionCodeChanged": false,
+    "packageChanged": false,
+    "publicationTarget": "Gitea only"
+  }
+}

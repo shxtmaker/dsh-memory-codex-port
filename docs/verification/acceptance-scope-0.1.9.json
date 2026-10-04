@@ -1,0 +1,36 @@
+{
+  "version": "0.1.9",
+  "date": "2026-10-04",
+  "timezone": "Asia/Shanghai",
+  "status": "PASS",
+  "scope": "necessary acceptance for Windows local Desktop and loopback Web only",
+  "userDecision": "远程暂未启用，暂不纳入",
+  "hostVersion": "0.2.0-rc.2",
+  "checks": [
+    {"criterion": "build and typecheck", "status": "PASS", "evidence": "existing unchanged-production 0.1.9 results reused"},
+    {"criterion": "A1 installation and management page", "status": "PASS", "evidence": "actual isolated Web and installed Desktop; actual Remote RPC; user management operations and desktop-copy-export-0.1.9.json"},
+    {"criterion": "A2 memory pipeline and isolation", "status": "PASS", "evidence": "one real extraction/consolidation chain, fresh-session recall, restart, project A/B and global sharing; existing controlled scope-denial fixture"},
+    {"criterion": "A3 switches and deletion", "status": "PASS", "evidence": "real Desktop user switch/delete/source-delete/clear checks; existing epoch, old-job fence and revision fixtures"},
+    {"criterion": "A4 budget and deadline", "status": "PASS", "evidence": "existing deterministic cumulative-1024, deadline and late-result checks; credit/day-limit/retry accounting and real usage ledger"},
+    {"criterion": "A5 faults and lifecycle", "status": "PASS", "evidence": "existing controlled model/storage faults, native Host lifecycle/replay, actual isolated Web uninstall/reinstall and Desktop restart"}
+  ],
+  "deferred": [
+    {"criterion": "actual cross-machine non-loopback Host connection and remote permissions", "status": "NOT_RUN", "scope": "excluded by explicit user decision; not a release gate for this local scope"},
+    {"criterion": "WAN and remote Desktop deployment", "status": "NOT_RUN", "scope": "excluded by explicit user decision; no deployment compatibility claim"}
+  ],
+  "retainedRequirements": ["actual plugin Remote RPC", "project isolation and scope denial", "read-only and write permission boundaries"],
+  "limits": {
+    "fixtureResultsNotRelabeledAsRealRemote": true,
+    "historicalFailuresAndBlockedResultsPreserved": true,
+    "historicalZeroAddressBindRejectionDoesNotProveAllRemoteUnavailable": true,
+    "noNewNetworkListenerOrTrustOverride": true,
+    "noAdditionalPaidModelCalls": true,
+    "futureRemoteEnablementRequiresActualConnectionAndPermissionAcceptance": true
+  },
+  "artifactsUnchanged": [
+    {"file": "dist/dsh-memory-local-0.1.9.tgz", "bytes": 196525, "sha256": "c1cc197c370f7c9c1c8ee614a698cda1d23eb2cfb49a50aa154b82edfbf398c2"},
+    {"file": "dist/dsh-memory-codex-port-0.1.9-source.zip", "bytes": 1253097, "sha256": "4e3d891f882b1856b2441ee2064291464bfbf17cbdb5afe928e437269efea5c2"}
+  ],
+  "packageDocumentation": "documents inside the existing artifacts remain at build-time status; current acceptance is recorded in the repository",
+  "publicationTarget": "Gitea only"
+}

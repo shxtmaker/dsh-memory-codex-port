@@ -1,6 +1,6 @@
 # 验收记录
 
-结论：**本地核心验收PASS；完整验收待完成验收**。当前版本为0.1.9，实际Windows Desktop及Host为0.2.0-rc.2。真实提炼、整理、新会话召回、重启读取、项目A/B隔离、全局共享、保存与修改、页面内文件浏览、两级使用关闭且保留数据、单条删除、来源删除及project-A作用域清空均已通过。真实非loopback Host连接仍BLOCKED；系统文件管理器、真实Desktop复制/导出及WAN等项目仍NOT_RUN。旧版本真实失败、固定模型与Web证据分别保留。
+结论：**本轮本机范围必要验收PASS**。当前版本为0.1.9，实际Windows Desktop及Host为0.2.0-rc.2。真实提炼、整理、新会话召回、重启读取、项目A/B隔离、全局共享、保存与修改、页面内文件浏览、两级使用关闭且保留数据、单条删除、来源删除及project-A作用域清空均已通过。真实Desktop复制路径、当前空快照的Markdown导出及复制目录后在Windows文件资源管理器浏览的降级流程也已通过。用户于2026-10-04明确远程暂未启用、暂不纳入；真实跨机器远程及WAN记为NOT_RUN，不作为本轮放行门槛。旧版本真实失败、固定模型与Web证据分别保留。
 
 ## 实际环境
 
@@ -27,7 +27,7 @@
 | A1 Desktop 0.1.9 页面内文件内容浏览 | PASS，用户截图及只读文件核查 | 全局MEMORY.md正文显示偏好、MEM-G-019、observed、人工来源及revision2；截图代目录与当前SQLite快照一致，137字节文件对应内容核查通过；globalUse仍false |
 | A1 Desktop 0.1.9 清空 | PASS，用户操作结果及只读核查 | project-A的clear审计已保存，有效条目0，当前代三个Markdown正文均空；新会话不返回已清空的数据库约定 |
 | A1 Desktop 0.1.8 磁盘安装与重启 | PASS，用户操作及只读核查 | 已安装0.1.8，Host于本地12:36完整重启，晚于12:19插件文件更新；同一隔离home/profile |
-| A1 实际非 loopback Host | BLOCKED | CLI 明确拒绝 0.0.0.0 监听，未覆盖安全条件 |
+| A1 实际非 loopback Host | NOT_RUN，本轮范围之外 | 用户明确暂不纳入；历史CLI拒绝0.0.0.0监听的记录保留，该结果不代表所有远程连接均被拒绝。未改变监听、信任或授权条件 |
 | A2 原生日志闭环 | PASS，固定模型 | 实际 AgentLoop、持久日志、提炼、整理、新会话命中、重启、中文/代码检索、A/B 与全局隔离 |
 | A2 真实提炼→整理→新会话召回 | PASS，用户操作及只读核查 | 0.1.9 extract与consolidate均一次成功，finish=stop，用量500/1555；MEM-A-019自动条目revision1及来源存在，新会话账本824/1024且对应memory_usage已结算；用户回答引用该约定 |
 | A2 真实重启后读取 | PASS，用户回答及只读核查 | 条目于本地15:52生成；同一隔离Desktop/Host于16:04完整重启。新会话仍引用相同id@1，来源与更新时间保持，新会话账本824/1024；生成关闭、使用保留 |
@@ -52,9 +52,9 @@
 | A5 故障与生命周期 | PASS | 格式失败、取消、存储故障前台放行、未来schema/身份拒绝、快照重建、路径/junction拒绝、Worker退出 |
 | A5 同 home 卸载/重装 | PASS | 页面卸载移除；数据库保留；重装读取同一数据 |
 | A1/A5 运行中升级与重启 | PASS，实际隔离Web | 实际pluginManager从0.1.6升级0.1.7返回restart-required；重启前新动作复现相同边界错误，完整重启后相同请求成功；旧账本不自动补满 |
-| Desktop复制路径与Markdown导出 | NOT_RUN | 按钮已在真实Desktop可见；操作仅有既有隔离Web通过证据 |
-| 系统文件管理器 | NOT_RUN | 实际Desktop页面内MEMORY.md浏览已通过，可作为Host能力降级；复制路径及导出仅有既有隔离Web操作证据 |
-| WAN / 真实远程 Desktop | NOT_RUN | 未建立对应实际环境 |
+| Desktop复制路径与Markdown导出 | PASS，真实Desktop操作及只读核查 | 实际点击复制路径，剪贴板与当前global快照目录一致；点击导出生成global-d9ccc3f9-8119-43ee-8d32-1c0b2c98c0b4.md及export审计。文件为当前空快照的1字节换行，与MEMORY.md逐字节及SHA-256一致；有内容的导出复用既有隔离Web证据 |
+| 系统文件管理器降级流程 | PASS，真实Windows操作 | 将插件复制的目录粘贴至文件资源管理器地址栏，成功显示MEMORY.md、memory_summary.md、raw_memories.md。插件没有直接打开系统目录按钮，不将手动粘贴流程称为原生目录打开API |
+| WAN / 真实远程 Desktop | NOT_RUN，本轮范围之外 | 用户明确远程暂未启用、暂不纳入；不声明远程部署或WAN兼容性已经通过 |
 
 公开证据见 [docs/verification](../../docs/verification)。`evidence/verified-0.1.4.json` 为历史0.1.5与0.1.4的一致性记录，不适用于后续版本。0.1.6来源依赖修复见 `source-access-0.1.6.json`；0.1.7额度及诊断见 `budget-diagnostics-0.1.7.json`；0.1.8请求策略修复见 `background-routing-0.1.8.json`；0.1.9整理协议见 `consolidation-contract-0.1.9.json`，最终包见 `distribution-0.1.9.json`。原生日志、用户配置及模型正文不公开。0.1.9用户真实主链路及页内详情新增证据见 `manual-real-chain-0.1.9.json`；生成后正常重启见 `manual-restart-0.1.9.json`；真实项目A/B隔离见 `manual-isolation-0.1.9.json`；真实全局共享及人工保存修改见 `manual-global-sharing-0.1.9.json`；全局使用关闭且数据保留见 `manual-global-disable-0.1.9.json`；项目使用关闭且数据保留见 `manual-project-disable-0.1.9.json`；单条删除及删除后不召回见 `manual-record-delete-0.1.9.json`；来源删除及无关条目保留见 `manual-source-delete-0.1.9.json`；project-A作用域清空、旧来源水位线和新会话不召回见 `manual-scope-clear-0.1.9.json`；Desktop页面内文件正文浏览见 `manual-file-browse-0.1.9.json`；分发包及源码包维持原哈希，包内文档为打包时的验收状态。
 
@@ -64,12 +64,12 @@
 
 前台usage的大数为合成边界夹具，不代表真实供应商账单。稳定策略162 UTF-8 bytes、完整工具定义290 bytes额外记录，不计入直接证据1024账本；供应商tokenizer、宿主封装和后续模型轮次另有成本。
 
-## 已完成的本地核心验收与剩余范围
+## 本轮验收范围与结论
 
-0.1.9本地核心手动验收已完成，不需要继续重复提炼、整理或记忆问答。既有构建/类型检查及必要A1–A5自动化检查继续有效；本轮只更新文档，未改生产代码或分发包。隔离project-A当前有效记忆为0，项目使用开启、全局使用关闭、两级自动生成关闭。原始日志、失败记录、实际费用及历史证据账本保留。
+0.1.9本轮Windows本机Desktop及loopback Web必要验收已完成，不需要继续重复提炼、整理或记忆问答。既有构建/类型检查及必要A1–A5自动化检查继续有效；本次只补录真实Desktop操作、更新文档及本轮范围，未改生产代码或分发包。隔离project-A当前有效记忆为0，项目使用开启、全局使用关闭、两级自动生成关闭。原始日志、失败记录、实际费用和历史证据账本保留；本次导出新增一个文件及export审计，不修改记忆条目或profile。
 
-1. BLOCKED：真实非loopback Host连接、远程当前项目及只读行为。现有官方CLI拒绝0.0.0.0监听；等待宿主正式提供对应授权连接能力。未修改宿主、放松权限或新增独立服务。
-2. NOT_RUN：实际系统文件管理器操作、真实Desktop复制路径与导出、WAN。Desktop页面内文件浏览已通过，可用于系统目录打开能力缺失时的降级。未执行项不计作PASS。
+1. 用户范围决策：2026-10-04明确“远程暂未启用，暂不纳入”。真实跨机器连接、远程页面/权限及WAN记为NOT_RUN、本轮范围之外；不是通过或免除未来远程部署前的验收。本机实际Remote RPC及既有作用域越权/只读限制测试仍属于必需项，证据继续保留。
+2. 真实Desktop复制路径、Markdown导出及系统文件管理器降级流程PASS，补充证据见`docs/verification/desktop-copy-export-0.1.9.json`。导出样本为删除后空快照，不能据此声称Desktop有内容样本也在本次单独导出验证；其既有Web验证继续有效。
 3. 清空后的旧任务竞态与防重生约束复用既有固定模型A3证据；本轮实际核对了epoch及清空前来源水位线，不为重复验证额外调用付费模型。原生日志保留仅核查文件存在及大小，未重新解码正文或验收完整聊天历史界面。
 
-真实远程缺口解除前，完整验收仍为待完成验收。
+本轮本机范围必要验收PASS；跨机器远程及WAN未验收。后续启用远程时另行验证实际连接、当前项目范围、只读/写入限制和执行主机存储归属。历史证据中的BLOCKED/NOT_RUN为当时状态，不覆盖本次明确的范围决策，也不改写为历史PASS。
