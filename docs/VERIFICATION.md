@@ -19,3 +19,5 @@
 ![0.1.7额度页面，实际隔离Web及固定数据](screenshots/web-credit-0.1.7.png)
 
 图中额度、usage和任务来自固定模型边界夹具，不是用户实际余额或真实模型成功证据。
+
+`upgrade-boundary-0.1.7.json`来自实际隔离Host的运行中升级测试。官方pluginManager对已安装包升级返回restart-required；旧Host仍拒绝新topUpCredit动作，完整重启后同一请求成功并保留旧账本。该结果不能代替用户Desktop完整重启实测；当前分发tgz不变，安装说明已明确要求重启。

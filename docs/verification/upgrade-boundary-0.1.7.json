@@ -1,0 +1,22 @@
+{
+  "status": "PASS",
+  "hostVersion": "0.2.0-rc.2",
+  "environment": "actual isolated loopback Web; no model calls",
+  "from": "0.1.6",
+  "to": "0.1.7",
+  "upgradeApplication": "restart-required",
+  "beforeRestart": {
+    "diskVersion": "0.1.7",
+    "newActionRejected": true,
+    "error": "typert gateway: memory/invoke: wire field \"request\" failed boundary validation"
+  },
+  "afterRestart": {
+    "newActionAccepted": true,
+    "manualCredit": 10000,
+    "initialCredit": 0,
+    "dailyUsed": 0,
+    "existingLedgerPreserved": true
+  },
+  "realDesktopRestart": "NOT_RUN",
+  "realModel": "NOT_RUN"
+}

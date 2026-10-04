@@ -109,7 +109,7 @@ Capture 保存有界来源元数据，不建立第二套完整聊天日志。模
 本轮预算变化由用户明确要求；不以补充额度作为真实模型通过证据。旧 MODEL_OR_SCHEMA_FAILURE 记录没有模型正文，无法追溯具体字段错误。升级后新尝试显示 MODEL_INVALID_JSON、MODEL_SCHEMA_FAILURE、MODEL_OUTPUT_TRUNCATED、MODEL_CALL_FAILURE 或 INVALID_SOURCE_REF，以及不含正文的校验路径和最近一次实际用量。保持同一隔离 home/profile，先完成一次可核验提炼与整理，再测试新会话读取。
 
 - Web：在匹配运行时目录使用 `node node_modules/@deepseek-ai/dsh/lib/bin.js plugin --profile memory-review add <新包实际路径>`，随后重启同 home/profile。
-- Desktop：使用应用自己的插件管理路径升级。
+- Desktop：使用应用自己的插件管理路径升级。安装后必须完全退出对应应用和Desktop Host，再以原DSH_HOME及原Electron user-data-dir启动。仅刷新记忆页面、关闭设置窗口或重新安装包不更新已加载的严格Remote接口。宿主返回 `restart-required` 时，不应把磁盘版本变更当作运行版本已更新。
 - 不覆盖同版本同路径 tarball，避免包管理器复用缓存。
 
 Web 卸载：

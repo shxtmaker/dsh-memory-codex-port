@@ -68,3 +68,21 @@ DONE限定于下列实测范围，不能替代BLOCKED环境验收。
 - 未执行：未升级用户实例、未补充用户实际credit、未读取凭证或由代理触发真实模型调用。真实校验失败具体原因仍待新诊断证据。
 - 分发结果：最终包逐文件安装核对及实际Remote/Page结果见 `docs/verification/distribution-0.1.7.json`；双远端交付以仓库main和dist校验值为准。
 - 下一步：用户在同一隔离配置档升级0.1.7，手动补充并受控重验真实提炼/整理；完成Desktop全部管理交互和正式支持的远程环境验收。
+
+## 2026-10-04 用户重装后的验收基线
+
+- 用户报告已重装。只读核查当前Desktop主进程及Host使用既有隔离 `desktop-YMA7EY` home、desktop profile和独立Electron user-data-dir；已安装插件manifest为0.1.7，Host要求0.2.0-rc.2，SQLite存在credit_grants新表。
+- 当前记忆配置档仍为desktop-fixture，credit为1217.72、今日已用1453、paused为0，初始/人工授予记录为空。重装未自动补满，符合已有配置档迁移规则。
+- 用户已保存的dailyTokens为20000，projectUse为true、projectGenerate为false；全局读取和生成关闭。旧SOURCE_UNAVAILABLE失败保留，旧格式重试及待执行任务已经取消，没有本轮新任务。
+- project-A仍指向用户建立的manual-acceptance隔离目录，未清空数据库、改写配置、补充额度、触发模型或重新安装日常profile。
+- 当前0.1.7安装基线已确认；完整页面操作及真实模型闭环NOT_RUN，既有0.1.6模型失败证据不改为通过。
+- 下一步：用户在高级页面手动补充至10000并保存每日100000，启用项目自动生成，建立一条不使用工具、不修改文件的短样本；按任务、条目来源、新会话读取的顺序继续验收。
+
+## 2026-10-04 重装后严格Remote边界错误
+
+- 用户截图：每日100000已经生效，当前credit1450、manualGranted为0，新extract等待额度；点击人工补充后出现 `typert gateway: memory/invoke: wire field "request" failed boundary validation`。
+- 只读核查：已安装index/client/typert.host/typert.remote-client与0.1.7分发构建的SHA-256一致，新动作及requestId声明存在；当前Desktop Host仍为包重装前启动的同一进程。
+- 复现命令：`node tests/upgrade-boundary.mjs`。使用全新隔离home、实际官方Host/pluginManager和0.1.6→0.1.7包，得到restart-required；未重启时相同补充请求被旧严格接口拒绝，复现完全相同错误。完整重启后相同请求成功，credit/manualGranted为10000，initialGranted为0，原账本保留，模型调用为0。
+- 结论：升级需要完整Host重启。先前仅确认磁盘版本和新表不能证明运行接口已更新；已补充A1/A5验收及安装说明，不修改宿主、生成schema、权限或预算以绕过校验。
+- 实际隔离Web升级/重启测试PASS；用户Desktop完整重启、新补充及真实模型仍待验收。未关闭用户应用、改写用户数据库、补充实际额度或触发真实模型。
+- 后续上传只使用Gitea；GitHub必须有用户新的明确指示。当前0.1.7安装包保持原哈希，问题处理是完整重启，不需要再次安装相同包。
