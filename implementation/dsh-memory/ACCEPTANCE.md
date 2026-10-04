@@ -1,6 +1,6 @@
 # 验收记录
 
-结论：**待完成验收**。当前版本为 0.1.9。整理协议使用合法 JSON 示例，新增省略 id/revision，更新与撤销保留旧记录的整数 revision。0.1.9 用户真实提炼、整理、新会话召回和页面详情已通过。正常重启后读取也已通过；真实项目A/B隔离、全局共享及人工保存与修改也已通过；全局使用关闭后不召回且数据保留已通过；Desktop页面内MEMORY.md正文浏览已通过；项目使用关闭及删除清空等管理操作仍待验收；旧版本失败记录保留。固定模型或 Web 不能替代真实 Desktop 闭环。
+结论：**待完成验收**。当前版本为 0.1.9。整理协议使用合法 JSON 示例，新增省略 id/revision，更新与撤销保留旧记录的整数 revision。0.1.9 用户真实提炼、整理、新会话召回和页面详情已通过。正常重启后读取也已通过；真实项目A/B隔离、全局共享及人工保存与修改也已通过；全局使用关闭后不召回且数据保留已通过；Desktop页面内MEMORY.md正文浏览已通过；项目使用关闭后不召回且数据保留已通过；删除与清空等管理操作仍待验收；旧版本失败记录保留。固定模型或 Web 不能替代真实 Desktop 闭环。
 
 ## 实际环境
 
@@ -37,7 +37,8 @@
 | A2 只读权限夹具 | PASS | 实际管理实现按 Host 能力关闭写入；当前项目可读，越权 scope 拒绝；非真实网络连接 |
 | A3 开关、来源、删除、清空 | PASS | 独立 use/generate、人工保护、revision 冲突、epoch、水位线、旧任务提交拒绝 |
 | A3 Desktop全局使用关闭且数据保留 | PASS，用户截图及只读核查 | globalUse=false，原global人工条目id@2及时间未变；project-B新会话reserved/settled均0，无memory_usage，用户回答未返回偏好或标识。未捕获逐次工具响应轨迹 |
-| A3 Desktop项目使用关闭、删除及清空 | NOT_RUN | 两级生成关闭已核查；仍需项目使用关闭后的新会话验证，以及仅隔离测试范围的删除和清空 |
+| A3 Desktop项目使用关闭且数据保留 | PASS，用户提供回答及只读核查 | projectUse=false，A项目继承策略无覆盖；两条原自动条目id@1及时间未变，最新独立会话reserved/settled均0且无memory_usage；用户回答不返回路径或标识。逐次工具响应未捕获 |
+| A3 Desktop条目/来源删除及作用域清空 | NOT_RUN | 仅有既有隔离Web及固定数据证据；仍需真实Desktop在隔离测试范围确认相应操作及结果 |
 | A3 原生撤回与重放 | PASS | user/message、仅修改正文的 tool/result、卸载重放 |
 | A4 预算与截止 | PASS | 累计共用1024、revision去重、重启/压缩不重置；3%加显式授予、日上限、并发一、重试计费、未知usage暂停；150ms晚到不注入 |
 | A4 新默认和人工额度 | PASS，固定数据 | 新配置档仅初次授予10000；旧配置档无自动授予；手动补充幂等、不可越权、不可运行中补充或解除未知usage暂停；重启不补满 |
@@ -50,7 +51,7 @@
 | 系统文件管理器 | NOT_RUN | 实际Desktop页面内MEMORY.md浏览已通过，可作为Host能力降级；复制路径及导出仅有既有隔离Web操作证据 |
 | WAN / 真实远程 Desktop | NOT_RUN | 未建立对应实际环境 |
 
-公开证据见 [docs/verification](../../docs/verification)。`evidence/verified-0.1.4.json` 为历史0.1.5与0.1.4的一致性记录，不适用于后续版本。0.1.6来源依赖修复见 `source-access-0.1.6.json`；0.1.7额度及诊断见 `budget-diagnostics-0.1.7.json`；0.1.8请求策略修复见 `background-routing-0.1.8.json`；0.1.9整理协议见 `consolidation-contract-0.1.9.json`，最终包见 `distribution-0.1.9.json`。原生日志、用户配置及模型正文不公开。0.1.9用户真实主链路及页内详情新增证据见 `manual-real-chain-0.1.9.json`；生成后正常重启见 `manual-restart-0.1.9.json`；真实项目A/B隔离见 `manual-isolation-0.1.9.json`；真实全局共享及人工保存修改见 `manual-global-sharing-0.1.9.json`；全局使用关闭且数据保留见 `manual-global-disable-0.1.9.json`；Desktop页面内文件正文浏览见 `manual-file-browse-0.1.9.json`；分发包及源码包维持原哈希，包内文档为打包时的验收状态。
+公开证据见 [docs/verification](../../docs/verification)。`evidence/verified-0.1.4.json` 为历史0.1.5与0.1.4的一致性记录，不适用于后续版本。0.1.6来源依赖修复见 `source-access-0.1.6.json`；0.1.7额度及诊断见 `budget-diagnostics-0.1.7.json`；0.1.8请求策略修复见 `background-routing-0.1.8.json`；0.1.9整理协议见 `consolidation-contract-0.1.9.json`，最终包见 `distribution-0.1.9.json`。原生日志、用户配置及模型正文不公开。0.1.9用户真实主链路及页内详情新增证据见 `manual-real-chain-0.1.9.json`；生成后正常重启见 `manual-restart-0.1.9.json`；真实项目A/B隔离见 `manual-isolation-0.1.9.json`；真实全局共享及人工保存修改见 `manual-global-sharing-0.1.9.json`；全局使用关闭且数据保留见 `manual-global-disable-0.1.9.json`；项目使用关闭且数据保留见 `manual-project-disable-0.1.9.json`；Desktop页面内文件正文浏览见 `manual-file-browse-0.1.9.json`；分发包及源码包维持原哈希，包内文档为打包时的验收状态。
 
 ## 计量边界
 
@@ -60,7 +61,7 @@
 
 ## 待完成验收
 
-1. 0.1.9安装、完整重启、列表/详情/来源、人工保存与修改已确认；全局使用关闭后不召回且数据库条目保留已确认；页面内MEMORY.md正文浏览已确认；完成真实Desktop的项目使用关闭、删除与清空等剩余操作。仅在隔离测试范围操作。
+1. 0.1.9安装、完整重启、列表/详情/来源、人工保存与修改已确认；全局使用关闭后不召回且数据库条目保留已确认；页面内MEMORY.md正文浏览已确认；项目使用关闭后不召回且数据库条目保留已确认；完成真实Desktop的条目/来源删除与作用域清空等剩余操作。仅在隔离测试范围操作。
 2. 0.1.9真实提炼、整理、新会话召回、项目A/B隔离、全局共享和正常重启后读取已通过，无需再产生同类后台调用。两级自动生成保持关闭；关闭使用的验证必须使用新会话，避免旧会话历史干扰。旧失败记录、人工更正和账本保留。
 3. Host正式允许授权非loopback连接后，验证真实远程当前项目和只读行为。
 
