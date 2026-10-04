@@ -28,7 +28,7 @@ const cli = join(runtime, 'node_modules/@deepseek-ai/dsh/lib/bin.js')
 const fixture = JSON.parse(await readFile('evidence/package-lifecycle.json', 'utf8'))
 assert.equal(fixture.status, 'PASS')
 const { home, profile } = fixture, env = { ...process.env, DSH_HOME: home }
-const packagePath = resolve(`artifacts/dsh-memory-local-${manifest.version}.tgz`)
+const packagePath = resolve(process.env.MEMORY_FINAL_PACKAGE??`artifacts/dsh-memory-local-${manifest.version}.tgz`)
 const bytes = await readFile(packagePath), finalFiles = unpack(bytes), candidate = unpack(await readFile(fixture.package))
 const built = [...finalFiles.keys()].filter(path => path.startsWith('package/lib/')).sort()
 assert(built.length > 10)
@@ -71,11 +71,13 @@ try {
   assert.deepEqual(errors, [])
   await page.screenshot({ path: 'evidence/final-package-settings.png', fullPage: true })
   await page.locator('.dm-page details summary').click()
-  const daily = page.getByLabel('每日后台上限（tokens）')
-  await daily.scrollIntoViewIfNeeded()
-  assert.equal(await daily.inputValue(), '100000')
-  await page.screenshot({ path: 'evidence/final-package-credit.png', fullPage: true })
-  const result = { status: 'PASS', hostVersion: manifest.dsh.engines.dsh, environment: 'isolated loopback Web', package: packagePath, version: manifest.version, sha256: hash(bytes), fileCount: finalFiles.size, builtFilesIdenticalToAcceptedCandidate: built.length, allInstalledFilesMatchFinalPackage: true, actualSettingsPage: true, actualRemote200: true, actualDailyDefault: 100000, home, profile, realModel: 'NOT_RUN', desktop: 'NOT_RUN', realRemote: 'BLOCKED' }
+  const usage = page.locator('.dm-usage-stat')
+  await usage.scrollIntoViewIfNeeded()
+  assert.equal(typeof overview.dailyUsage.tokens,'number')
+  assert((await usage.textContent()).includes('今日已使用'+overview.dailyUsage.tokens+' token。'))
+  assert.equal(await page.getByRole('button',{name:'保存报警阈值',exact:true}).count(),0)
+  await page.screenshot({ path: 'evidence/final-package-usage.png', fullPage: true })
+  const result = { status: 'PASS', hostVersion: manifest.dsh.engines.dsh, environment: 'isolated loopback Web', package: packagePath, version: manifest.version, sha256: hash(bytes), fileCount: finalFiles.size, builtFilesIdenticalToAcceptedCandidate: built.length, allInstalledFilesMatchFinalPackage: true, actualSettingsPage: true, actualRemote200: true, actualDailyUsage: overview.dailyUsage.tokens, alarmsRemoved: true, home, profile, realModel: 'NOT_RUN', desktop: 'NOT_RUN', realRemote: 'BLOCKED' }
   await writeFile('evidence/final-package.json', JSON.stringify(result, null, 2)); console.log(JSON.stringify(result, null, 2))
   await writeFile('artifacts/SHA256SUMS.txt', hash(bytes) + `  dsh-memory-local-${manifest.version}.tgz\n`)
 } finally {

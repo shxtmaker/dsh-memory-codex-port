@@ -1,0 +1,2 @@
+a6258ae478b7b92a06c965efc1a4d4291ce1060183d383b5a45581a94dd08dc8  dsh-memory-local-0.1.11.tgz
+7c97d9843edec668192d605b5d038470d7da0a6b812b5097b2c4dea2b9014edf  dsh-memory-codex-port-0.1.11-source.zip

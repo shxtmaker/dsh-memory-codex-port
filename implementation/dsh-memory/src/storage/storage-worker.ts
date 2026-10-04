@@ -5,7 +5,8 @@ import { join, relative, isAbsolute, resolve, parse } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { terms, redact, tokens, extractionSchema, proposalSchema } from '../shared.ts'
-import type { MemoryItem, Source, Project, Job } from '../contracts.ts'
+import { localUsageDay } from '../usage-statistics.ts'
+import type { MemoryItem, Source, Project, Job, DailyUsage } from '../contracts.ts'
 
 const boot = z.object({ root: z.string(), owner: z.string(), trust: z.string(), profile: z.string() }).parse(workerData)
 // 不允许数据目录或其既有祖先通过 junction/symlink 进入其他位置。
@@ -45,19 +46,17 @@ CREATE TABLE IF NOT EXISTS foreground_usage(id TEXT PRIMARY KEY, tokens INTEGER 
 CREATE TABLE IF NOT EXISTS credit_grants(id TEXT PRIMARY KEY, kind TEXT NOT NULL, amount REAL NOT NULL, time INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS audit_events(id TEXT PRIMARY KEY, action TEXT NOT NULL, target TEXT NOT NULL, time INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS session_policy(id TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS usage_attempts(id TEXT PRIMARY KEY, scope TEXT NOT NULL, kind TEXT NOT NULL, usage INTEGER, time INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS usage_attempts_time_scope ON usage_attempts(time,scope);
 PRAGMA user_version=1;
 `)
+if(!db.prepare('PRAGMA table_info(budget_ledger)').all().some(column=>column.name==='updatedAt'))db.exec('ALTER TABLE budget_ledger ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0')
 const bound = db.prepare('SELECT * FROM memory_profiles').get()
 if (bound && (bound.id !== boot.profile || bound.owner !== boot.owner || bound.trust !== boot.trust)) throw new Error('PROFILE_IDENTITY_MISMATCH')
 transaction(()=>{
   db.prepare('INSERT OR IGNORE INTO memory_profiles VALUES(?,?,?)').run(boot.profile, boot.owner, boot.trust)
   db.prepare('INSERT OR IGNORE INTO background_ledger(id,day) VALUES(1,?)').run(day())
-  // 仅首次绑定的新配置档获得初始额度；已有配置档、刷新和重启不补满。
-  if(!bound){
-    db.prepare('INSERT INTO credit_grants VALUES(?,?,?,?)').run('initial-v0.1.7','initial',10000,Date.now())
-    db.prepare('UPDATE background_ledger SET credit=credit+10000 WHERE id=1').run()
-    audit('credit-initial','initial-v0.1.7')
-  }
+  // 旧版额度账本只保留历史数据，不再参与后台准入或结算。
 })
 
 function day(): string { return new Date().toISOString().slice(0, 10) }
@@ -172,7 +171,16 @@ function snapshot(id: string): { files: string[]; generation: string; time: numb
   }
   return materialize(id)
 }
-function storeJob(job: Job & { epochs?: Record<string,number> }): void { db.prepare('INSERT INTO jobs VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(job.id,job.key,job.scope,JSON.stringify(job)) }
+function storeJob(job: Job & { epochs?: Record<string,number> }): void { db.prepare('INSERT INTO jobs VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(job.id,job.key,job.scope,JSON.stringify({...job,updatedAt:Date.now()})) }
+function recordUsage(job:Job,usage:number|null):void {
+  db.prepare('INSERT OR IGNORE INTO usage_attempts VALUES(?,?,?,?,?)').run(`${job.id}:${job.fence}`,job.scope,job.kind,usage,Date.now())
+}
+function dailyUsage(scopes?:string[]):DailyUsage {
+  const {day,timezone,start,end}=localUsageDay()
+  const filter=scopes?' AND scope IN ('+scopes.map(()=>'?').join(',')+')':''
+  const row=db.prepare('SELECT COALESCE(SUM(usage),0) AS tokens,COUNT(*) AS calls,COUNT(*)-COUNT(usage) AS unknownCalls FROM usage_attempts WHERE time>=? AND time<?'+filter).get(start,end,...(scopes??[]))!
+  return {day,timezone,tokens:Number(row.tokens),calls:Number(row.calls),unknownCalls:Number(row.unknownCalls)}
+}
 function fence(job: Job & { epochs?: Record<string,number> }): void {
   const live=get<Job>('jobs',job.id)
   if (!live || live.fence!==job.fence || live.state!=='running' || live.leaseUntil<Date.now()) throw new Error('STALE_LEASE')
@@ -214,9 +222,7 @@ function execute(op: string, input: unknown): unknown {
     })
     case 'overview': {
       const scopes=['global',...all<Project>('projects').map(p=>p.id)]
-      const grants=db.prepare("SELECT coalesce(sum(CASE WHEN kind='initial' THEN amount ELSE 0 END),0) AS initialGranted,coalesce(sum(CASE WHEN kind='manual' THEN amount ELSE 0 END),0) AS manualGranted FROM credit_grants").get()!
-      const earned=db.prepare('SELECT coalesce(sum(tokens),0)*0.03 AS foregroundEarned FROM foreground_usage').get()!
-      return {root,profile:boot.profile,defaults:scopeDefaults(),projects:all<Project>('projects'),scopes:scopes.map(id=>{const snap=snapshot(id);return {id,epoch:scope(id).epoch,use:enabled(id,'use'),generate:enabled(id,'generate'),count:items(id).length,fileCount:snap.files.filter(f=>f!=='raw_memories.md').length,updatedAt:snap.time}}),jobs:all<Job>('jobs').slice(-30),budget:{...db.prepare('SELECT * FROM background_ledger').get(),...grants,...earned},evidence:db.prepare('SELECT * FROM budget_ledger').all()}
+      return {root,profile:boot.profile,defaults:scopeDefaults(),projects:all<Project>('projects'),scopes:scopes.map(id=>{const snap=snapshot(id);return {id,epoch:scope(id).epoch,use:enabled(id,'use'),generate:enabled(id,'generate'),count:items(id).length,fileCount:snap.files.filter(f=>f!=='raw_memories.md').length,updatedAt:snap.time}}),jobs:all<Job>('jobs').sort((a,b)=>(b.updatedAt??b.settledAt??b.createdAt)-(a.updatedAt??a.settledAt??a.createdAt)).slice(0,30),dailyUsage:dailyUsage(a.usageScopes===undefined?undefined:z.array(z.string()).min(1).parse(a.usageScopes)),evidence:db.prepare('SELECT * FROM budget_ledger ORDER BY updatedAt DESC,rowid DESC').all()}
     }
     case 'list': return items(str('scope')).slice(z.number().int().min(0).parse(a.cursor ?? 0),z.number().int().min(0).parse(a.cursor ?? 0)+z.number().int().min(1).max(100).parse(a.limit ?? 50))
     case 'read': {const item=get<MemoryItem>('memory_items',str('id'));if(!item || item.status==='expired') throw new Error('NOT_FOUND');scope(item.scope);return {...item,sourceDetails:item.sources.map(id=>get<Source>('source_segments',id))} }
@@ -270,42 +276,23 @@ function execute(op: string, input: unknown): unknown {
     case 'pending': return all<Job>('jobs').filter(j=>['queued','waiting-credit','retry','running'].includes(j.state)&&j.retryAt<=Date.now()).sort((a,b)=>a.createdAt-b.createdAt).slice(0,8)
     case 'failSource': {const job=get<Job>('jobs',str('id'));if(job&&['queued','waiting-credit','retry'].includes(job.state)){storeJob({...job,state:'failed',error:'SOURCE_UNAVAILABLE'});audit('source-unavailable',job.id)}return true}
     case 'job': return get<Job>('jobs',str('id'))
-    case 'credit': return transaction(()=>{const amount=z.number().nonnegative().parse(a.tokens),id=str('id');if(!db.prepare('SELECT id FROM foreground_usage WHERE id=?').get(id)){db.prepare('INSERT INTO foreground_usage VALUES(?,?)').run(id,amount);db.prepare('UPDATE background_ledger SET credit=credit+? WHERE id=1').run(amount*0.03)}return db.prepare('SELECT * FROM background_ledger').get()})
-    case 'topUpCredit': return transaction(()=>{
-      if(a.confirmation!=='TOP_UP_CREDIT:10000')throw new Error('CONFIRMATION_REQUIRED')
-      const id=z.string().uuid().parse(a.requestId),previous=db.prepare('SELECT * FROM credit_grants WHERE id=?').get(id)
-      if(previous)return previous
-      const ledger=db.prepare('SELECT * FROM background_ledger').get()!
-      if(ledger.paused)throw new Error('USAGE_UNKNOWN_PAUSED')
-      if(all<Job>('jobs').some(job=>job.state==='running'))throw new Error('BACKGROUND_BUSY')
-      const amount=Math.max(0,10000-Number(ledger.credit))
-      db.prepare('INSERT INTO credit_grants VALUES(?,?,?,?)').run(id,'manual',amount,Date.now())
-      db.prepare('UPDATE background_ledger SET credit=credit+? WHERE id=1').run(amount)
-      audit('credit-manual',id)
-      return db.prepare('SELECT * FROM credit_grants WHERE id=?').get(id)
-    })
     case 'lease': return transaction(()=>{
       const job=get<Job & {epochs:Record<string,number>}>('jobs',str('id'));if(!job)throw new Error('NOT_FOUND')
       if(job.retryAt>Date.now() || (job.state==='running'&&job.leaseUntil>Date.now()) || !['queued','waiting-credit','retry','running'].includes(job.state))return null
-      if(job.state==='running'){db.prepare('UPDATE background_ledger SET paused=1 WHERE id=1').run();storeJob({...job,state:'failed',error:'LEASE_EXPIRED_USAGE_UNKNOWN',leaseUntil:0});audit('lease-expired-unknown',job.id);return null}
+      if(job.state==='running'){recordUsage(job,null);storeJob({...job,state:'failed',error:'LEASE_EXPIRED_USAGE_UNKNOWN',attemptUsage:null,leaseUntil:0});audit('lease-expired-unknown',job.id);return null}
       if(job.kind==='consolidate'&&all<Job>('jobs','WHERE scope=?',[job.scope]).some(other=>other.id!==job.id&&other.kind==='consolidate'&&other.state==='succeeded'&&(other.settledAt??other.createdAt)+(job.intervalMs??0)>Date.now()))return null
       if(Object.entries(job.epochs ?? {[job.scope]:job.epoch}).some(([id,epoch])=>scope(id).epoch!==epoch||!enabled(id,'generate'))){storeJob({...job,state:'cancelled'});return null}
-      db.prepare('UPDATE background_ledger SET day=?,used=0 WHERE day!=?').run(day(),day())
-      const ledger=db.prepare('SELECT * FROM background_ledger').get()!,reserve=z.number().int().positive().parse(a.reserve)
-      if(ledger.paused || Number(ledger.credit)<reserve || Number(ledger.used)+reserve>num('dailyLimit')){storeJob({...job,state:'waiting-credit'});return null}
+      const reserve=z.number().int().positive().parse(a.reserve)
       if(all<Job>('jobs').some(j=>j.id!==job.id && j.state==='running' && j.leaseUntil>Date.now()))return null
-      db.prepare('UPDATE background_ledger SET credit=credit-?,used=used+? WHERE id=1').run(reserve,reserve)
       const leased={...job,state:'running',reserved:reserve,fence:job.fence+1,attempts:job.attempts+1,leaseUntil:Date.now()+120000};storeJob(leased);return leased
     })
     case 'settleJob': return transaction(()=>{
       const job=get<Job>('jobs',str('id'));if(!job||job.fence!==num('fence')||job.state!=='running')throw new Error('STALE_LEASE')
-      const usage=typeof a.usage==='number'?z.number().int().nonnegative().parse(a.usage):job.reserved
-      if(a.usage===null)db.prepare('UPDATE background_ledger SET paused=1 WHERE id=1').run()
-      // 同一 UTC 日内退还预留差额；跨日结算不扣减新日额度。
-      db.prepare('UPDATE background_ledger SET credit=credit+?,used=max(0,used-?) WHERE id=1').run(job.reserved-usage,day()===new Date(job.leaseUntil-120000).toISOString().slice(0,10)?job.reserved-usage:0)
+      const usage=typeof a.usage==='number'?z.number().int().nonnegative().parse(a.usage):null
+      recordUsage(job,usage)
       const diagnostic=typeof a.diagnostic==='string'&&/^[a-zA-Z0-9_.:, ?-]{0,300}$/.test(a.diagnostic)?a.diagnostic:''
       const modelFinish=['stop','max-tokens','error','aborted','tool-calls','other'].includes(String(a.modelFinish))?String(a.modelFinish):''
-      storeJob({...job,state:str('state'),error:typeof a.error==='string'?a.error:'',diagnostic,modelFinish,attemptUsage:typeof a.usage==='number'?usage:null,retryAt:Date.now()+Math.min(86400000,60000*2**job.attempts),leaseUntil:0,settledAt:Date.now()});audit('job-'+str('state'),job.id);return true
+      storeJob({...job,state:str('state'),error:typeof a.error==='string'?a.error:'',diagnostic,modelFinish,attemptUsage:usage,retryAt:Date.now()+Math.min(86400000,60000*2**job.attempts),leaseUntil:0,settledAt:Date.now()});audit('job-'+str('state'),job.id);return true
     })
     case 'commitExtraction': return transaction(()=>{
       const job=get<Job & {epochs:Record<string,number>}>('jobs',str('id'));if(!job)throw new Error('NOT_FOUND');if(job.fence!==num('fence'))throw new Error('STALE_LEASE');fence(job)
@@ -373,13 +360,13 @@ function execute(op: string, input: unknown): unknown {
       }
       if(!records.length)return null
       text+='</memory-evidence>';const cost=tokens(text),id=randomUUID(),value={id,session,epoch:Number(ledger.epoch),text,cost,records,epochs:Object.fromEntries(records.map(i=>[i.scope,scope(i.scope).epoch]))}
-      db.prepare('INSERT INTO reservations VALUES(?,?,?)').run(id,session,JSON.stringify(value));db.prepare('UPDATE budget_ledger SET reserved=reserved+? WHERE session=?').run(cost,session);return value
+      db.prepare('INSERT INTO reservations VALUES(?,?,?)').run(id,session,JSON.stringify(value));db.prepare('UPDATE budget_ledger SET reserved=reserved+?,updatedAt=? WHERE session=?').run(cost,Date.now(),session);return value
     })
     case 'checkEvidence': {const value=get<{session:string;records:MemoryItem[];epochs:Record<string,number>}>('reservations',str('id'));return !!value&&!get<{off:boolean}>('session_policy',value.session)?.off&&Object.entries(value.epochs).every(([id,epoch])=>scope(id).epoch===epoch&&enabled(id,'use'))&&value.records.every(i=>{const live=get<MemoryItem>('memory_items',i.id);return live&&live.status!=='expired'&&live.revision===i.revision})}
-    case 'releaseEvidence': return transaction(()=>{const value=get<{session:string;cost:number}>('reservations',str('id'));if(value){db.prepare('DELETE FROM reservations WHERE id=?').run(str('id'));db.prepare('UPDATE budget_ledger SET reserved=max(0,reserved-?) WHERE session=?').run(value.cost,value.session)}return true})
+    case 'releaseEvidence': return transaction(()=>{const value=get<{session:string;cost:number}>('reservations',str('id'));if(value){db.prepare('DELETE FROM reservations WHERE id=?').run(str('id'));db.prepare('UPDATE budget_ledger SET reserved=max(0,reserved-?),updatedAt=? WHERE session=?').run(value.cost,Date.now(),value.session)}return true})
     case 'settleEvidence': return transaction(()=>{
       const value=get<{session:string;cost:number;epoch:number;records:MemoryItem[]}>('reservations',str('id'));if(!value)return false
-      db.prepare('DELETE FROM reservations WHERE id=?').run(str('id'));db.prepare('UPDATE budget_ledger SET reserved=max(0,reserved-?),settled=settled+? WHERE session=?').run(value.cost,value.cost,value.session)
+      db.prepare('DELETE FROM reservations WHERE id=?').run(str('id'));db.prepare('UPDATE budget_ledger SET reserved=max(0,reserved-?),settled=settled+?,updatedAt=? WHERE session=?').run(value.cost,value.cost,Date.now(),value.session)
       for(const item of value.records)db.prepare('INSERT OR IGNORE INTO memory_usage VALUES(?,?,?,?,?)').run(value.session,value.epoch,item.id,item.revision,JSON.stringify({request:str('request'),time:Date.now(),scope:item.scope}));return true
     })
     case 'close': db.exec('PRAGMA wal_checkpoint(TRUNCATE)');db.close();return true

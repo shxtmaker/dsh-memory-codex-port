@@ -1,0 +1,123 @@
+{
+  "date": "2026-10-04",
+  "version": "0.1.13",
+  "hostVersion": "0.2.0-rc.2",
+  "status": "PASS",
+  "scope": "vertical alignment of same-row buttons and input controls",
+  "changes": {
+    "actionButtonHeight": 36,
+    "minHeight": 36,
+    "maxHeight": 36,
+    "verticalCenter": true,
+    "singleLinePreserved": true,
+    "columnPositionsPreserved": true
+  },
+  "checks": {
+    "build": "PASS",
+    "typecheck": "PASS",
+    "nativeHost": "PASS (FIXTURE model)",
+    "web": [
+      {
+        "name": "A1/A3 actual loopback Web",
+        "status": "PASS",
+        "sourceDetails": true,
+        "conflictPreservesDraft": true,
+        "manualSave": true,
+        "pageFileBrowser": true,
+        "export": true,
+        "doubleSwitch": true,
+        "clearScopeIsolation": true
+      },
+      {
+        "name": "non-loopback actual Web",
+        "status": "BLOCKED",
+        "reason": "Harness CLI refuses non-loopback binding for safety; no override attempted"
+      },
+      {
+        "name": "0.1.13 vertical alignment of same-row controls",
+        "status": "PASS",
+        "hostCatalog": true,
+        "providerModelCascade": true,
+        "routeSaveAndRestart": true,
+        "alarmDefault": 10000,
+        "alarmValidation": true,
+        "alarmSaveAndRestart": true,
+        "pageAlarm": true,
+        "iconsRemoved": true,
+        "saveButtonsAligned": true,
+        "alignedEdges": [
+          {
+            "count": 2,
+            "aligned": true,
+            "height": 36
+          },
+          {
+            "count": 2,
+            "aligned": true,
+            "height": 36
+          },
+          {
+            "count": 3,
+            "aligned": true,
+            "height": 36
+          },
+          {
+            "count": 2,
+            "aligned": true,
+            "height": 36
+          }
+        ],
+        "singleLine": [
+          {
+            "height": 36,
+            "inline": true,
+            "contained": true
+          },
+          {
+            "height": 36,
+            "inline": true,
+            "contained": true
+          }
+        ],
+        "controlHeight": 36,
+        "bodyTypography": "14px/22px",
+        "fontMatchesSettings": true,
+        "latestSessionDefault": true,
+        "latestExtractDefault": true,
+        "historyExpandable": true,
+        "creditAndDailyUiRemoved": true,
+        "fixture": "synthetic catalogs and historical usage; no real provider call"
+      }
+    ],
+    "visualInspection": "PASS (actual isolated Web screenshot)",
+    "finalPackage": {
+      "status": "PASS",
+      "hostVersion": "0.2.0-rc.2",
+      "environment": "isolated loopback Web",
+      "version": "0.1.13",
+      "sha256": "4e156988feb6c271d5f242c9f4711c0f06666407653f72cd056bce88da98651c",
+      "fileCount": 31,
+      "builtFilesIdenticalToAcceptedCandidate": 24,
+      "allInstalledFilesMatchFinalPackage": true,
+      "actualSettingsPage": true,
+      "actualRemote200": true,
+      "actualAlarmDefault": 10000,
+      "realModel": "NOT_RUN",
+      "desktop": "NOT_RUN",
+      "realRemote": "BLOCKED"
+    }
+  },
+  "notRun": [
+    "actual Desktop UI and user restart",
+    "real provider model calls",
+    "cross-machine remote / WAN"
+  ],
+  "externalChanges": {
+    "desktopInstalled": false,
+    "desktopRestarted": false,
+    "gitCommit": false,
+    "gitPush": false,
+    "release": false
+  },
+  "evidenceNotes": "Top and bottom bounds checked in actual installed plugin UI for browse/clear buttons, provider/model/save controls, and alarm/save controls. Provider catalogs and historical usage are fixtures."
+}

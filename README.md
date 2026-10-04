@@ -1,163 +1,87 @@
 # DeepSeek Harness 记忆插件
 
-为 DeepSeek Harness 提供 Codex 式双阶段后台记忆：先从原生会话日志提炼，再按差异整理为可检索记忆。提供全局与项目范围、SQLite 存储、Markdown 快照和「设置 → 记忆」管理页面。
+为 DeepSeek Harness 提供全局记忆、项目记忆、后台提炼与整理，以及「设置 → 记忆」管理页面。当前版本为 **V0.2.0**，插件包版本为 **0.2.0**。
 
-**当前版本：0.1.9。本轮本机范围必要验收：PASS。** 整理协议使用合法 JSON 示例，并明确新增、更新与撤销所需字段。后台在模型明确支持 off 时关闭推理；单次后台最大输出仍为 1024。新配置档初始额度为 10000，已有配置档手动补充至 10000，每日默认上限为 100000。
+## 主要功能
 
-真实 Desktop 已通过提炼、整理、新会话召回、重启读取、项目 A/B 隔离、全局共享、保存与修改、页面内文件浏览、两级使用关闭且保留数据、单条删除及来源删除。项目作用域清空、旧来源水位线和清空后新会话不召回也已通过。复制路径、当前空快照的 Markdown 导出及复制路径后在 Windows 文件资源管理器浏览的降级流程均已实测。本轮范围为 Windows 本机 Desktop 和 loopback Web；跨机器远程及 WAN 尚未启用，按用户决定暂不纳入，状态为 NOT_RUN，不作为本轮放行门槛。旧版失败与计费记录保留。
-
-当前发行源为Gitea；GitHub镜像可能落后于当前版本。
-
-本次补录验收不重新打包，0.1.9安装包及源码包维持原SHA-256。包内文档保存打包时状态；当前验收结论以仓库中的验收记录和实施状态为准。
-
-- GitHub：[shxtmaker/dsh-memory-codex-port](https://github.com/shxtmaker/dsh-memory-codex-port)
-- Gitea：[lqy/dsh-memory-codex-port](http://192.168.3.100:3300/lqy/dsh-memory-codex-port)
-- 安装包：[dist/dsh-memory-local-0.1.9.tgz](dist/dsh-memory-local-0.1.9.tgz)
-- 完整源码包：[dist/dsh-memory-codex-port-0.1.9-source.zip](dist/dsh-memory-codex-port-0.1.9-source.zip)
-- 校验值：[dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)
-- [验收记录](implementation/dsh-memory/ACCEPTANCE.md) · [实施状态](implementation/dsh-memory/IMPLEMENTATION_STATUS.md)
-
-![记忆设置页，实际隔离 Web 环境](docs/screenshots/web-settings.png)
-
-## 功能
-
-- 全局记忆与项目记忆双开关；高级设置可分别控制读取和生成，项目可设置覆盖策略。
-- 后台 Phase 1 提炼、Phase 2 增量整理；保留来源、时间和状态，保护人工编辑与置顶内容。
-- SQLite 为事实来源；按代生成 MEMORY.md、memory_summary.md、原始提炼、会话摘要和待审阅技能快照。
-- 中文 n-gram、英文和代码符号词法检索；检索前限制作用域。
-- 列表、分页、详情、来源、编辑、冲突保留草稿、删除、清空、页内文件浏览、复制路径和 Markdown 导出。
-- 原生 `memory` search/read 工具，以及 `/memory`、`/memory note 文本`、`/memory off`。
-
-页内浏览已实际验证。未确认宿主可授权的系统目录打开能力时，使用页内浏览、路径复制和导出；当前不提供 Explorer 打开按钮。技能文件仅为待审阅候选，不注册执行。
-
-## 兼容性
-
-| 项目 | 当前要求或状态 |
-|---|---|
-| DeepSeek Harness Host | 严格匹配 `0.2.0-rc.2` |
-| Node.js | 24 或更高，需支持 `node:sqlite` 与 Worker |
-| 已实测环境 | Windows；匹配版本 npm Web/原生内核；已装 Desktop 0.2.0-rc.2 的独立 profile |
-| Desktop 可见页面 | PASS：0.1.9 安装与重启、列表、详情、来源、保存与修改、页面内文件浏览、使用关闭且保留数据、单条及来源删除、project-A作用域清空及清空后新会话不召回 |
-| 真实模型 | PASS：0.1.9 提炼500、整理1555 tokens，新会话提供824/1024直接证据；生成后完整重启读取也已通过，真实项目A/B隔离和全局共享也已通过 |
-| Desktop 复制、导出与系统目录浏览 | PASS：当前空快照导出与原文件逐字节一致；复制目录路径后在 Windows 文件资源管理器浏览，插件不提供直接打开按钮 |
-| 跨机器远程 / 非 loopback Host / WAN | NOT_RUN：暂不纳入本轮，不声明已验证远程部署；本机 Remote RPC 已真实通过 |
-
-不要在其他 Host 版本使用兼容豁免强装。当前包不声明支持 `0.2.1-alpha.1`。不要求修改 agent-loop、Desktop 主进程、preload 或内置 settings shell；不启动独立服务，不运行 Codex，也不访问 Codex 数据库。
+- 全局记忆保存个人偏好、习惯和长期上下文；项目记忆按执行主机及工作目录隔离代码规则、决策和经验。
+- 在允许的会话结束并空闲后提炼有效信息，再按来源差异增量整理。人工更正和置顶条目受到保护。
+- 从宿主已经配置的供应商和模型目录中选择提炼路由。只有官方路由时优先使用已配置 API Key 的官方 API，否则使用可用官方账号路由；保留已有有效选择。
+- 页面支持浏览、新建、修改、删除、来源查看、作用域清空、Markdown 文件查看、路径复制及导出。
+- 高级设置显示今日后台 token 消耗，默认只显示最新一条会话计量和最新一条 extract 状态，并可展开历史。
+- 供应商、模型和保存按钮保持单行；同行操作按钮与输入控件统一高度并上下对齐。字体继承宿主设置页。
 
 ## 安装
 
-### Desktop
+要求 **Node.js 24 或更新版本**，且 Host 版本严格匹配 **0.2.0-rc.2**。此插件不修改宿主核心或 Desktop 主进程。
 
-确认应用和 Host 均为 `0.2.0-rc.2`，登录后通过应用自己的插件管理入口安装 `dsh-memory-local-0.1.9.tgz`。Desktop 使用自己的 bundled runtime、pnpm 和 desktop profile；不要用系统 npm 代替它的包管理器。
+1. 下载 [dsh-memory-local-0.2.0.tgz](dist/dsh-memory-local-0.2.0.tgz)，按 [SHA256SUMS-0.2.0.txt](dist/SHA256SUMS-0.2.0.txt) 校验文件。
+2. 在兼容的 Desktop 插件管理入口安装本地 tgz。
+3. 完全退出并重新启动使用相同 home/profile 的 Host，然后进入「设置 → 记忆」。仅刷新页面不能更新运行中 Host 的插件协议。
 
-安装后进入「设置 → 记忆」。开关和发送许可默认关闭。人工记忆、编辑和浏览不依赖模型；自动生成需要先配置宿主模型路由，并在记忆高级设置中填写 provider/model、确认发送许可。`fixture` 仅是测试适配器，不能作为正式路由。
-
-### 隔离 Web 审阅
-
-以下 PowerShell 命令在仓库根目录执行。首次使用先克隆并安装匹配运行时；不进行全局升级。
+使用 CLI 时，在目标 Host 的相同环境中执行：
 
 ```powershell
-git clone http://192.168.3.100:3300/lqy/dsh-memory-codex-port.git
-Set-Location dsh-memory-codex-port
-npm ci --prefix runtime-v0.2.0-rc.2
-
-$repoRoot = (Get-Location).Path
-$bundlePath = (Resolve-Path 'dist/dsh-memory-local-0.1.9.tgz').Path
-$env:DSH_HOME = Join-Path $repoRoot '.review-home'
-Set-Location runtime-v0.2.0-rc.2
-node node_modules/@deepseek-ai/dsh/lib/bin.js --profile memory-review --from-default-profile web --dump-config
-node node_modules/@deepseek-ai/dsh/lib/bin.js plugin --profile memory-review add $bundlePath
+dsh plugin add ./dsh-memory-local-0.2.0.tgz
 ```
 
-首次初始化只执行一次；已有 profile 省略 `--from-default-profile web`。首次启动前，把默认工作区也放到测试目录：
+全局和项目的读取、自动生成及发送许可默认关闭。人工保存和浏览不需要模型。开启自动生成前，先在宿主配置官方账号、官方 API Key 或其他供应商，然后选择路由、保存并确认发送许可。更换供应商或模型后需要重新确认。凭证是否可用只查询宿主状态，不读取或展示密钥。
+
+## 今日 token 消耗
+
+高级设置在原来的用量说明位置显示：
+
+> 每次提炼、整理和重试分别按供应商返回的总 tokens 计量。今日已使用 **N** token。
+
+- 按执行主机的本地自然日统计当前记忆配置档的后台消耗，以调用结算时间归属日期；日期切换后显示新一天的合计。远程执行时使用远程主机的日期和时区。
+- 提炼、整理、失败调用和重试分别累计供应商返回的总 tokens。流式调用发生后续错误时，已收到的用量仍计入。相同任务的一次调用只计入一次；无需模型的整理不会产生调用用量。
+- 供应商未返回用量时单独显示未计入合计的调用次数，不使用预估值补齐。此时显示的是已知用量，可能小于实际消耗。
+- 统计写入 SQLite，重启、卸载后重新安装以及清空记忆内容都不会抹除已记录的消耗。页面可见时每 10 秒更新统计和后台状态。
+- V0.2.0 起建立完整的逐次统计。旧版本没有完整的逐次用量记录，因此不回填旧报警或任务的最近一次用量。
+
+报警阈值、超额提示、后台可用额度和每日额度限制已移除。统计不设置调用前硬上限，不代表金额，也不产生系统通知。前台召回不调用提炼或重排模型，其每会话累计 1024 的直接证据边界与这里的后台实际用量分开；策略和工具 schema 另计。
+
+## 自动记忆与数据
+
+默认在会话完成并空闲 10 分钟后提炼。后台并发为 1，成功整理的最短间隔为 30 分钟，输出上限默认 1024，格式失败最多重试一次。模型明确声明支持关闭推理时，后台调用关闭推理。只采集启用后新完成的根会话，不自动扫描旧历史。
+
+发送给所选供应商的是脱敏后的近期用户消息、助手文本和必要工具证据；不发送私有推理或高优先级指令。自动召回共用 150ms 截止，超时后继续前台任务。支持原生 memory search/read，以及 /memory、/memory note 和 /memory off。
+
+数据位于 `$DSH_HOME/memory/<memoryProfileId>/`，默认记忆配置档为 `local-default`。SQLite 是事实来源，Markdown 是可重建快照。项目按执行主机和 realpath 隔离，不按名称或 Git remote 合并。捕获保存来源元数据，提炼时读取宿主原生日志，不建立第二份完整聊天记录。
+
+关闭读取不抹除历史对话。清空不删除原始会话或主动导出的文件，也不撤回供应商已接收的数据，不承诺物理安全擦除。技能文件只作为待审阅候选，不注册执行。只读远程连接仅返回允许作用域的记忆和用量统计。
+
+## 升级与回滚
+
+升级前退出 Host，并备份完整记忆目录及 profile 配置、锁文件。安装新包后完整重启相同 home/profile。旧记忆、失败记录和历史账本保留；新增逐次统计表按幂等方式建立，SQLite schema 仍为 1。旧 `alarmTokens` 和 `dailyTokens` 配置不再生效。旧 waiting-credit 任务按空闲时间、重试次数和生成策略继续调度。
+
+回滚需要同时恢复旧兼容插件包以及升级前的数据和配置备份。重新启用后台调度可能调用已经获准的模型；需要暂缓时可关闭自动生成。
+
+## 下载与验证
+
+- [安装包](dist/dsh-memory-local-0.2.0.tgz)
+- [完整源码](dist/dsh-memory-codex-port-0.2.0-source.zip)
+- [SHA-256 校验值](dist/SHA256SUMS-0.2.0.txt)
+- [页面截图](docs/screenshots/web-settings-0.2.0.png)
+- [V0.2.0 验证记录](docs/verification/iteration-0.2.0.json)
+- [验收记录](implementation/dsh-memory/ACCEPTANCE.md) · [实施状态](implementation/dsh-memory/IMPLEMENTATION_STATUS.md)
+
+本版本使用隔离 Windows Host 与实际 loopback Web 页面验证；自动模型适配器和历史用量为测试夹具。真实 Desktop 页面、真实供应商调用和跨机器远程/WAN 为 NOT_RUN，旧版本的真实验收不替代本版本验证。
+
+从源码验证，在 implementation/dsh-memory 目录执行：
 
 ```powershell
-$reviewDocuments = Join-Path $env:DSH_HOME 'documents'
-New-Item -ItemType Directory -Path $reviewDocuments -Force | Out-Null
-$reviewPatch = Join-Path $env:DSH_HOME 'profiles/memory-review/cordis.patch.yml'
-$reviewConfig = (Get-Content -LiteralPath $reviewPatch -Raw) -replace '(?m)^\[\]\s*$', ''
-$reviewConfig += "`n- id: workspace-controller`n  config:`n    documentsDirectory: '$reviewDocuments'`n"
-Set-Content -LiteralPath $reviewPatch -Value $reviewConfig -Encoding utf8
-node node_modules/@deepseek-ai/dsh/lib/bin.js --profile memory-review --no-open --host 127.0.0.1 --port 18437
-```
-
-打开终端显示的临时本机链接，可选择「稍后配置」模型。访问令牌不应写入共享文档。建立自己的测试会话，不使用日常项目。
-
-## 生成、召回与费用
-
-默认空闲 10 分钟后提炼，后续成功整理最短间隔 30 分钟；新范围首次整理可以立即排队。空闲时间到达仍需 credit 足够，等待本身不会增加 credit。新活动会推迟待执行提炼。只采集启用后新完成的根会话；提炼时读取并等待原生日志 flush，排除隐藏推理、高优先级指令、记忆注入和记忆工具结果。不自动扫描历史。
-
-自动召回不增加提炼或重排序模型调用。项目识别、策略核对、证据撤回和所有召回共用 150ms 截止；超时继续前台，晚到结果不注入。定时器存在调度误差，150ms 不代表整个模型请求或首 token 的延迟保证。
-
-全局和当前项目共享每会话预算周期累计 1024 的直接证据额度。正文、引用和封装按 UTF-8 字节保守扣额；相同 revision 去重，重启和自然压缩不重置。当前没有自动重置周期功能。稳定策略和工具 schema 成本另外记录；1024 不是全部 token 成本。模型主动读记忆仍可能增加工具轮次及后续请求成本。
-
-后台并发固定为 1，默认每日上限 100000 tokens。首次绑定的新记忆配置档获得一次 10000 tokens 初始额度，已有配置档升级不自动授予；高级设置可确认“补充至10000 tokens”。初始授予、人工补充和前台实际 usage 的 3% 累计分别记账，刷新或重启不会补满。
-
-后台先读取所选模型声明的推理能力，仅在支持 `off` 时显式选择该模式；未声明此能力时保留适配器默认值，不假设所有模型都能关闭推理。能力查询不新增提炼模型调用，实际调用仍通过Host的prepareCall绑定与校验。输出上限不提高；供应商返回max-tokens时拒绝提交不完整结果，最多一次重试并分别计费。当前尚不能证明0.1.7真实截断完全由推理造成，因为未保存正文或私有推理；0.1.9真实提炼与整理均一次成功，验证了修订后的后台链路。
-
-这些额度是插件调用预算，实际模型调用仍消耗供应商额度。调用前预留输入和最大输出；失败和一次格式重试分别计费，并纳入每日上限。处理中显示的日用量包含预留，完成后按实际 usage 结算。运行中或未知用量暂停时不能手动补充；补充不会清除已用日额度、历史失败、重试次数或暂停状态。缺可用额度时等待，不默认透支。
-
-## 存储与隔离
-
-数据位于 `$DSH_HOME/memory/<memoryProfileId>/`，默认 id 为 `local-default`。记忆配置档绑定 OS 用户、执行主机、home 和 id。多个 Host profile 需要配置不同的 `memoryProfileId` 才能使用不同目录；显式选择相同 id 会共用该 home 下的记忆配置档。
-
-项目按 Host realpath 与执行目标绑定持久 UUID，严格区分工作树；不按名称或 Git remote 合并。路径迁移视为新项目，暂无自动别名迁移；同一工作树切换分支不建立新 UUID，应结合来源时间判断适用性。
-
-Capture 保存有界来源元数据，不建立第二套完整聊天日志。模型输入和输出均脱敏，但后台仍需发送给用户已确认的供应商。SQLite schema 当前为 1，未来 schema 拒绝加载。当前代快照可从数据库重建，保留一个旧代；raw_memories.md 不计入卡片的可读文件数。
-
-清空使用 scope epoch、确认和来源水位线，撤销有效条目并拒绝旧任务回填。删除来源或单条记忆保留 tombstone；自动提案不能覆盖人工更正。关闭或删除的直接证据通过原生 SurfaceOp 撤回。
-
-清空不删除原始会话、供应商已接收数据、导出文件，也不承诺物理安全擦除。模型已经复述或写入压缩摘要的内容不能保证逐字撤销；需要严格隔离时新建会话。
-
-## 升级、卸载与回滚
-
-升级前退出 Host，备份对应记忆目录和 profile 配置/锁文件。不要在运行时只复制 state.sqlite 而漏掉 WAL。
-
-从旧版升级后，记忆、已用日额度和失败记录保留，不扫描旧历史。原 SOURCE_UNAVAILABLE 失败任务不自动重试；已处于等待额度的格式重试任务仍受最多两次尝试限制。已有配置档可在高级设置手动补充额度；默认每日上限变为100000，已明确保存的旧上限保留，可用“保存每日上限”调整。
-
-本轮预算变化由用户明确要求；不以补充额度作为真实模型通过证据。旧 MODEL_OR_SCHEMA_FAILURE 记录没有模型正文，无法追溯具体字段错误。升级后新尝试显示 MODEL_INVALID_JSON、MODEL_SCHEMA_FAILURE、MODEL_OUTPUT_TRUNCATED、MODEL_CALL_FAILURE 或 INVALID_SOURCE_REF，以及不含正文的校验路径和最近一次实际用量。保持同一隔离 home/profile，先完成一次可核验提炼与整理，再测试新会话读取。
-
-- Web：在匹配运行时目录使用 `node node_modules/@deepseek-ai/dsh/lib/bin.js plugin --profile memory-review add <新包实际路径>`，随后重启同 home/profile。
-- Desktop：使用应用自己的插件管理路径升级。安装后必须完全退出对应应用和Desktop Host，再以原DSH_HOME及原Electron user-data-dir启动。仅刷新记忆页面、关闭设置窗口或重新安装包不更新已加载的严格Remote接口。宿主返回 `restart-required` 时，不应把磁盘版本变更当作运行版本已更新。
-- 不覆盖同版本同路径 tarball，避免包管理器复用缓存。
-
-Web 卸载：
-
-```powershell
-node node_modules/@deepseek-ai/dsh/lib/bin.js plugin --profile memory-review remove dsh-memory-local
-```
-
-移除自己添加的 `id: dsh-memory` 配置覆盖行，保留其他配置。卸载默认保留数据库、快照和导出；同 home/id 重装可继续读取数据。需要逻辑清空时先在页面确认，再卸载。回滚应恢复兼容包和停机取得的完整备份；不对未来 schema 强制降级。
-
-## 源码与构建
-
-```text
-implementation/dsh-memory/   TypeScript 源码、锁文件、构建和必要测试
-runtime-v0.2.0-rc.2/          匹配隔离运行时的 manifest 与锁文件
-docs/                        页面截图和验证说明
-dist/                        可安装 tgz、完整源码 zip 和 SHA-256
-```
-
-在仓库根目录执行：
-
-```powershell
-npm ci --prefix implementation/dsh-memory
-Set-Location implementation/dsh-memory
+npm ci
 npm run build
 npm run typecheck
 npm test
 npm run test:host
 npm run pack:local
+npm run test:web
 ```
 
-build 生成声明、使用官方 Typert 生成器构建严格 Remote，再构建 Host、SQLite Worker 和 lazy-CJS Client。插件实际实现 `memory/invoke` 管理 API，不假定宿主已经提供 memory 接口。
-
-Web 必要验收还需在仓库根目录执行 `npm ci --prefix runtime-v0.2.0-rc.2`，并在插件目录执行 `npx playwright install chromium` 后运行 `npm run test:web`。测试创建隔离 home，并使用固定模型；不会购买额度、读取其他项目密钥或扫描真实历史。
-
-可选 Desktop 探针需要先设置 `DSH_MEMORY_DESKTOP_EXECUTABLE` 为真实应用 exe 的绝对路径，再执行 `node tests/desktop.mjs` 和 `node tests/desktop-acceptance.mjs`。不提供该路径时不会猜测目标实例。
-
-验收仅覆盖构建/类型检查及 A1–A5。详细 PASS/BLOCKED/NOT_RUN 见验收记录。源码包包含项目源码、锁文件、构建和测试、文档、匹配运行时 manifest/锁文件；不包含 node_modules、真实记忆数据库、测试 home、访问令牌或第三方参考仓库。
+自动化覆盖逐次累计、失败和重试、未知用量、重复结算、重启持久化、跨日边界、夏令时和只读作用域统计。Web 验证实际安装包、目录选择与保存、今日统计和自动刷新、报警移除、历史折叠及同行控件对齐。宿主拒绝非 loopback CLI 启动，未绕过该限制。
 
 ## 许可证
 
-项目采用 MIT，见 [LICENSE](LICENSE)。第三方依赖的许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本项目是独立插件，不代表 DeepSeek 或 OpenAI 官方产品。
+MIT。第三方声明见 [THIRD_PARTY_NOTICES.md](implementation/dsh-memory/THIRD_PARTY_NOTICES.md)。

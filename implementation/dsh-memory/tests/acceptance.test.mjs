@@ -5,8 +5,9 @@ import { join,resolve } from 'node:path'
 import { createHash,randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { DatabaseSync } from 'node:sqlite'
+import { localUsageDay } from '../src/usage-statistics.ts'
 import { StorageWorker } from '../lib/worker-client.js'
-import { MemoryEngine,withinDeadline } from '../lib/engine.js'
+import { MemoryEngine,ModelCallError,withinDeadline } from '../lib/engine.js'
 const base=resolve('test-runs');await mkdir(base,{recursive:true})
 const digest=text=>createHash('sha256').update(text).digest('hex')
 const policy={global:{use:true,generate:true},projects:{use:true,generate:true}}
@@ -27,7 +28,7 @@ async function fixture({existing=true}={}){
   return {root,store,project,other}
 }
 function engineFor(store,overrides={}) {
-  return new MemoryEngine(store,{consent:()=>true,route:()=>({provider:'FIXTURE',model:'FIXED'}),idleMs:()=>0,intervalMs:()=>0,dailyLimit:()=>20000,outputLimit:()=>1024,foregroundBusy:()=>false,readSource:async()=>{throw Error('SOURCE_MISSING')},model:async()=>{throw Error('MODEL_MISSING')},...overrides})
+  return new MemoryEngine(store,{consent:()=>true,route:()=>({provider:'FIXTURE',model:'FIXED'}),idleMs:()=>0,intervalMs:()=>0,outputLimit:()=>1024,foregroundBusy:()=>false,readSource:async()=>{throw Error('SOURCE_MISSING')},model:async()=>{throw Error('MODEL_MISSING')},...overrides})
 }
 const facts=[{scope:'global',kind:'preference',title:'中文沟通',content:'始终使用中文沟通。',status:'observed',source_refs:[0]},{scope:'project',kind:'decision',title:'SQLite Worker',content:'数据库操作放在 SQLite Worker 中。',status:'observed',source_refs:[0]}]
 async function pipeline(f,extra={}) {
@@ -40,7 +41,6 @@ async function pipeline(f,extra={}) {
     const input=JSON.parse(prompt.split('\n').at(-1))
     return {text:JSON.stringify({changes:input.inputs.flatMap(row=>row.output.items.map(item=>({op:'add',title:item.title,content:item.content,kind:item.kind,status:item.status,sources:[row.source]})))}),usage:100}
   },...extra})
-  await engine.credit('fixture-authoritative-usage',1000000)
   await engine.capture(source);await engine.tick();await engine.tick()
   return {engine,calls,source,text}
 }
@@ -48,7 +48,7 @@ test('A2 固定模型闭环、全局/项目隔离、增量差异和重启',async
   const f=await fixture();let engine
   try {
     const p=await pipeline(f);engine=p.engine
-    assert.equal(p.calls.length,3)
+    assert.equal(p.calls.length,3);assert.equal((await f.store.call('overview',{})).dailyUsage.tokens,300)
     const global=await f.store.call('list',{scope:'global'}),local=await f.store.call('list',{scope:f.project.id})
     assert.equal(global.length,1);assert.equal(local.length,1)
     const evidence=await engine.recall('new-session',f.project.id,'SQLite 中文',1,signal());assert(evidence);assert(evidence.text.includes('SQLite Worker'));assert(evidence.text.includes('中文沟通'))
@@ -77,7 +77,7 @@ test('A3 双策略、人工保护、revision、删除及 clear 防旧任务重�
     await f.store.call('policy',policy)
     const text=p.text,source={...p.source,id:randomUUID(),sessionId:randomUUID()};await engine.capture(source)
     const queued=(await f.store.call('pending',{})).find(j=>j.source===source.id)
-    const leased=await f.store.call('lease',{id:queued.id,reserve:200,dailyLimit:20000});assert(leased)
+    const leased=await f.store.call('lease',{id:queued.id,reserve:200});assert(leased)
     const overview=await f.store.call('overview',{}),scope=overview.scopes.find(s=>s.id===f.project.id)
     await assert.rejects(f.store.call('clear',{scope:scope.id,epoch:scope.epoch,confirmation:'bad'}),/CONFIRMATION_REQUIRED/)
     await f.store.call('clear',{scope:scope.id,epoch:scope.epoch,confirmation:`CLEAR:${scope.id}:${scope.epoch}`})
@@ -112,62 +112,55 @@ test('A4 共用持久 1024、一次 turn、总截止与晚到丢弃',async()=>{
     console.log(`A4 actual SQLite contention observed=${busyWait.toFixed(1)}ms; late reservation released`)
   }finally{await engine.close()}
 })
-test('A4 3% 无透支、日额度、并发一、失败重试及未知 usage 暂停',async()=>{
+test('A4 无额度拦截、失败重试逐次累计和未知用量继续',async()=>{
   const f=await fixture(),text=JSON.stringify([{seq:0,role:'user',text:'中文'}])
   const engine=engineFor(f.store,{readSource:async()=>text,model:async()=>({text:'INVALID_JSON',usage:100})})
   try {
     const src={id:randomUUID(),sessionId:randomUUID(),project:f.project.id,start:0,end:0,hash:digest(text),updatedAt:Date.now(),excluded:false}
-    await engine.capture(src);await engine.tick();assert.equal((await f.store.call('overview',{})).jobs[0].state,'waiting-credit')
-    await engine.credit('native-usage',1000000);await engine.credit('native-usage',1000000)
-    assert.equal((await f.store.call('overview',{})).budget.credit,30000)
-    await engine.tick();let overview=await f.store.call('overview',{});assert.equal(overview.budget.used,100);assert.equal(overview.jobs[0].attempts,1);assert.equal(overview.jobs[0].error,'MODEL_INVALID_JSON')
-    // 仅将隔离夹具的时钟条件前移，生产退避规则不变。
-    const db=new DatabaseSync(join(f.root,'memory','state.sqlite')),job=overview.jobs[0];job.retryAt=0;db.prepare('UPDATE jobs SET data=? WHERE id=?').run(JSON.stringify(job),job.id);db.close()
-    await engine.tick();overview=await f.store.call('overview',{});assert.equal(overview.budget.used,200);assert.equal(overview.jobs[0].state,'failed')
+    const dbPath=join(f.root,'memory','state.sqlite'),legacy=new DatabaseSync(dbPath)
+    legacy.prepare('UPDATE background_ledger SET credit=0,used=999999,paused=1').run();legacy.close()
+    await engine.capture(src);await engine.tick()
+    let value=await f.store.call('overview',{}),job=value.jobs.find(j=>j.source===src.id)
+    assert.equal(job.state,'retry');assert.equal(job.attempts,1);assert.equal(job.error,'MODEL_INVALID_JSON');assert.equal(job.attemptUsage,100)
+    assert.equal(value.dailyUsage.tokens,100);assert.equal(value.dailyUsage.calls,1);assert.equal(value.usageAlerts,undefined);assert.equal(value.budget,undefined)
+    const db=new DatabaseSync(dbPath);job.retryAt=0;db.prepare('UPDATE jobs SET data=? WHERE id=?').run(JSON.stringify(job),job.id);db.close()
+    await engine.tick();value=await f.store.call('overview',{});assert.equal(value.jobs.find(j=>j.id===job.id).state,'failed');assert.equal(value.dailyUsage.tokens,200);assert.equal(value.dailyUsage.calls,2)
     const j1=await engine.capture({...src,id:randomUUID(),sessionId:randomUUID()}),j2=await engine.capture({...src,id:randomUUID(),sessionId:randomUUID()})
-    assert.equal(await f.store.call('lease',{id:j1.id,reserve:500,dailyLimit:600}),null)
-    const lease=await f.store.call('lease',{id:j1.id,reserve:500,dailyLimit:20000});assert(lease)
-    assert.equal(await f.store.call('lease',{id:j2.id,reserve:500,dailyLimit:20000}),null)
+    const lease=await f.store.call('lease',{id:j1.id,reserve:500});assert(lease)
+    assert.equal(await f.store.call('lease',{id:j2.id,reserve:500}),null)
     await f.store.call('settleJob',{id:j1.id,fence:lease.fence,usage:null,state:'failed'})
-    overview=await f.store.call('overview',{});assert.equal(overview.budget.used,700);assert.equal(overview.budget.paused,1)
-    assert.equal(await f.store.call('lease',{id:j2.id,reserve:500,dailyLimit:20000}),null)
-    await assert.rejects(f.store.call('topUpCredit',{requestId:randomUUID(),confirmation:'TOP_UP_CREDIT:10000'}),/USAGE_UNKNOWN_PAUSED/)
+    value=await f.store.call('overview',{});assert.equal(value.dailyUsage.tokens,200);assert.equal(value.dailyUsage.calls,3);assert.equal(value.dailyUsage.unknownCalls,1)
+    const next=await f.store.call('lease',{id:j2.id,reserve:500});assert(next,'unknown usage must not block the next call')
+    await f.store.call('settleJob',{id:j2.id,fence:next.fence,usage:50,state:'succeeded'})
+    assert.equal((await f.store.call('overview',{})).dailyUsage.tokens,250)
+    const j3=await engine.capture({...src,id:randomUUID(),sessionId:randomUUID()}),third=await f.store.call('lease',{id:j3.id,reserve:500})
+    await f.store.call('settleJob',{id:j3.id,fence:third.fence,usage:49,state:'succeeded'})
+    assert.equal((await f.store.call('overview',{})).dailyUsage.tokens,299)
+    await assert.rejects(f.store.call('topUpCredit',{}),/UNKNOWN_OPERATION/)
+    await assert.rejects(f.store.call('settleJob',{id:j2.id,fence:next.fence,usage:99,state:'succeeded'}),/STALE_LEASE/);assert.equal((await f.store.call('overview',{})).dailyUsage.tokens,299)
   }finally{await engine.close()}
 })
 
-test('A4 新配置档初始10000、旧配置档手动补充、幂等和不自动补满',async()=>{
-  const fresh=await fixture({existing:false})
-  let reopened
+test('A4 今日用量重启保留、旧等待任务恢复、旧账本保留和最新session排序',async()=>{
+  const f=await fixture({existing:false});let reopened
   try{
-    let value=await fresh.store.call('overview',{})
-    assert.equal(value.budget.credit,10000);assert.equal(value.budget.initialGranted,10000)
-    await fresh.store.close()
-    reopened=new StorageWorker(join(fresh.root,'memory'),'owner','host','fixture');await reopened.ready
-    assert.equal((await reopened.call('overview',{})).budget.credit,10000)
-  }finally{await reopened?.close();await fresh.store.close()}
-  const legacy=await fixture()
-  try{
-    assert.equal((await legacy.store.call('overview',{})).budget.credit,0)
-    await assert.rejects(legacy.store.call('topUpCredit',{requestId:randomUUID(),confirmation:'wrong'}))
-    const requestId=randomUUID(),args={requestId,confirmation:'TOP_UP_CREDIT:10000'}
-    await legacy.store.call('topUpCredit',args)
-    assert.equal((await legacy.store.call('overview',{})).budget.manualGranted,10000)
-    const job=await legacy.store.call('capture',{source:{id:randomUUID(),sessionId:randomUUID(),project:legacy.project.id,start:0,end:0,hash:'fixture',updatedAt:Date.now(),excluded:false},idleMs:0})
-    const lease=await legacy.store.call('lease',{id:job.id,reserve:2000,dailyLimit:20000})
-    assert(lease)
-    await assert.rejects(legacy.store.call('topUpCredit',{requestId:randomUUID(),confirmation:'TOP_UP_CREDIT:10000'}),/BACKGROUND_BUSY/)
-    await legacy.store.call('settleJob',{id:job.id,fence:lease.fence,usage:100,state:'failed'})
-    await legacy.store.call('topUpCredit',args)
-    let value=await legacy.store.call('overview',{});assert.equal(value.budget.credit,9900)
-    assert.equal(value.budget.used,100);assert.equal(value.budget.manualGranted,10000)
-    await legacy.store.call('topUpCredit',{requestId:randomUUID(),confirmation:'TOP_UP_CREDIT:10000'})
-    value=await legacy.store.call('overview',{});assert.equal(value.budget.credit,10000);assert.equal(value.budget.manualGranted,10100)
-    await legacy.store.call('credit',{id:'actual-usage',tokens:100})
-    value=await legacy.store.call('overview',{});assert.equal(value.budget.foregroundEarned,3);assert.equal(value.budget.credit,10003)
-    await legacy.store.close()
-    const again=new StorageWorker(join(legacy.root,'memory'),'owner','host','fixture')
-    try{await again.ready;assert.equal((await again.call('overview',{})).budget.credit,10003)}finally{await again.close()}
-  }finally{await legacy.store.close()}
+    const source={id:randomUUID(),sessionId:randomUUID(),project:f.project.id,start:0,end:0,hash:'fixture',updatedAt:Date.now(),excluded:false}
+    const job=await f.store.call('capture',{source,idleMs:0}),db=new DatabaseSync(join(f.root,'memory','state.sqlite'))
+    const old={...job,state:'waiting-credit'};db.prepare('UPDATE jobs SET data=? WHERE id=?').run(JSON.stringify(old),job.id)
+    assert.equal(db.prepare('SELECT count(*) AS count FROM credit_grants').get().count,0);db.close()
+    const lease=await f.store.call('lease',{id:job.id,reserve:2000})
+    assert(lease);await f.store.call('settleJob',{id:job.id,fence:lease.fence,usage:101,state:'succeeded'})
+    const item=await f.store.call('save',{scope:f.project.id,title:'排序',content:'计量排序'})
+    for(const session of ['older','newer','older']){
+      const value=await f.store.call('reserveEvidence',{session,ids:[item.id],limit:1024})
+      if(value)await f.store.call('releaseEvidence',{id:value.id})
+      await new Promise(resolve=>setTimeout(resolve,5))
+    }
+    const value=await f.store.call('overview',{});assert.equal(value.evidence[0].session,'older')
+    await f.store.close();reopened=new StorageWorker(join(f.root,'memory'),'owner','host','fixture');await reopened.ready
+    const restored=await reopened.call('overview',{});assert.deepEqual(restored.dailyUsage,value.dailyUsage);assert.equal(restored.dailyUsage.tokens,101);assert.equal(restored.evidence[0].session,'older')
+    const retained=new DatabaseSync(join(f.root,'memory','state.sqlite'));assert.equal(retained.prepare('SELECT credit FROM background_ledger').get().credit,0);retained.close()
+  }finally{await reopened?.close();await f.store.close()}
 })
 
 test('A5 模型格式和截断诊断不记录敏感正文，实际失败用量保留',async()=>{
@@ -175,15 +168,15 @@ test('A5 模型格式和截断诊断不记录敏感正文，实际失败用量�
     [{text:'sk-FAKE0123456789 invalid JSON',usage:37},'MODEL_INVALID_JSON',''],
     [{text:JSON.stringify({rollout_summary:'摘要',rollout_slug:'test',items:[{...facts[1],source_refs:[]}]}),usage:37},'MODEL_SCHEMA_FAILURE','source_refs'],
     [{text:'{}',usage:37,finish:'max-tokens'},'MODEL_OUTPUT_TRUNCATED',''],
+    [new ModelCallError(37),'MODEL_CALL_FAILURE',''],
   ]){
     const f=await fixture(),text=JSON.stringify([{seq:0,role:'user',text:'项目决策'}])
-    const engine=engineFor(f.store,{readSource:async()=>text,model:async()=>reply})
+    const engine=engineFor(f.store,{readSource:async()=>text,model:async()=>{if(reply instanceof Error)throw reply;return reply}})
     try{
-      await engine.credit('fixture-usage',1000000)
-      await engine.capture({id:randomUUID(),sessionId:randomUUID(),project:f.project.id,start:0,end:0,hash:digest(text),updatedAt:Date.now(),excluded:false})
+          await engine.capture({id:randomUUID(),sessionId:randomUUID(),project:f.project.id,start:0,end:0,hash:digest(text),updatedAt:Date.now(),excluded:false})
       await engine.tick()
       const value=await f.store.call('overview',{}),job=value.jobs[0]
-      assert.equal(job.error,code);assert.equal(job.attemptUsage,37);assert.equal(value.budget.used,37)
+      assert.equal(job.error,code);assert.equal(job.attemptUsage,37);assert.equal(value.dailyUsage.tokens,37);assert.equal(value.budget,undefined)
       if(path)assert(job.diagnostic.includes(path))
       assert(!JSON.stringify(job).includes('FAKE0123456789'))
     }finally{await engine.close()}
@@ -199,8 +192,8 @@ test('A5 Worker 故障、身份拒绝、快照重建、路径拒绝与可停止�
     const outside=join(f.root,'outside');await mkdir(outside);await symlink(outside,join(f.root,'memory','exports'),process.platform==='win32'?'junction':'dir');await assert.rejects(f.store.call('export',{scope:'global'}),/PATH_DENIED/);assert.deepEqual(await readdir(outside),[])
     const text=JSON.stringify([{seq:0,role:'user',text:'取消夹具'}]);let started;const startedPromise=new Promise(resolve=>{started=resolve})
     const engine=engineFor(f.store,{readSource:async()=>text,model:async(_prompt,_limit,signal)=>{started();return new Promise((_resolve,reject)=>{signal.addEventListener('abort',()=>reject(Error('CANCELLED')),{once:true})})}})
-    await engine.credit('cancel-fixture',1000000);await engine.capture({id:randomUUID(),sessionId:randomUUID(),project:f.project.id,start:0,end:0,hash:digest(text),updatedAt:Date.now(),excluded:false});const active=engine.tick();await startedPromise;engine.cancel();await active
-    const cancelled=(await f.store.call('overview',{})).jobs.find(j=>j.state==='cancelled');assert(cancelled);assert.equal((await f.store.call('overview',{})).budget.paused,1)
+    await engine.capture({id:randomUUID(),sessionId:randomUUID(),project:f.project.id,start:0,end:0,hash:digest(text),updatedAt:Date.now(),excluded:false});const active=engine.tick();await startedPromise;engine.cancel();await active
+    const cancelled=(await f.store.call('overview',{})).jobs.find(j=>j.state==='cancelled');assert(cancelled);assert.equal((await f.store.call('overview',{})).dailyUsage.unknownCalls,1)
     await engine.close()
     await f.store.close();await assert.rejects(f.store.call('overview',{}),/STORAGE_STOPPED/)
     const mismatch=new StorageWorker(join(f.root,'memory'),'other-owner','host','fixture');await assert.rejects(mismatch.ready,/STORAGE_UNAVAILABLE/);await mismatch.close()

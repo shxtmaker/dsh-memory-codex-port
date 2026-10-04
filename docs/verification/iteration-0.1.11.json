@@ -1,0 +1,107 @@
+{
+  "date": "2026-10-04",
+  "version": "0.1.11",
+  "hostVersion": "0.2.0-rc.2",
+  "status": "PASS",
+  "scope": "local candidate; isolated Windows Host and loopback Web",
+  "changes": {
+    "defaultOfficialRoute": {
+      "condition": "no valid explicit route and only official providers registered",
+      "priority": [
+        "configured deepseek-official API Key",
+        "available deepseek-account"
+      ],
+      "model": "first advertised catalog model",
+      "preservesValidExplicitSelection": true,
+      "credentialState": "describe only; no secret values",
+      "noThirdPartyAutoSelection": true,
+      "oldRouteConsentNotTransferred": true
+    },
+    "typography": {
+      "source": "Host ModelsSection and SettingsRoot",
+      "body": "14px/22px",
+      "heading": "16px/24px",
+      "caption": "12px/18px",
+      "fontFamily": "inherited from Host settings"
+    },
+    "saveButtons": {
+      "sharedRightColumn": 132,
+      "height": 36,
+      "inputBottomAligned": true
+    }
+  },
+  "checks": {
+    "build": "PASS",
+    "typecheck": "PASS",
+    "automated": {
+      "passed": 13,
+      "failed": 0
+    },
+    "nativeHost": "PASS (FIXTURE model)",
+    "defaultOfficialAccountPipeline": "PASS (FIXTURE model)",
+    "defaultOfficialApiPipeline": "PASS (FIXTURE model and synthetic credential metadata)",
+    "web": [
+      {
+        "name": "A1/A3 actual loopback Web",
+        "status": "PASS",
+        "sourceDetails": true,
+        "conflictPreservesDraft": true,
+        "manualSave": true,
+        "pageFileBrowser": true,
+        "export": true,
+        "doubleSwitch": true,
+        "clearScopeIsolation": true
+      },
+      {
+        "name": "non-loopback actual Web",
+        "status": "BLOCKED",
+        "reason": "Harness CLI refuses non-loopback binding for safety; no override attempted"
+      },
+      {
+        "name": "0.1.11 configured catalog, alert settings and aligned typography",
+        "status": "PASS",
+        "hostCatalog": true,
+        "providerModelCascade": true,
+        "routeSaveAndRestart": true,
+        "alarmDefault": 10000,
+        "alarmValidation": true,
+        "alarmSaveAndRestart": true,
+        "pageAlarm": true,
+        "iconsRemoved": true,
+        "saveButtonsAligned": true,
+        "controlHeight": 36,
+        "bodyTypography": "14px/22px",
+        "fontMatchesSettings": true,
+        "latestSessionDefault": true,
+        "latestExtractDefault": true,
+        "historyExpandable": true,
+        "creditAndDailyUiRemoved": true,
+        "fixture": "synthetic catalogs and historical usage; no real provider call"
+      }
+    ],
+    "finalPackage": {
+      "status": "PASS",
+      "sha256": "a6258ae478b7b92a06c965efc1a4d4291ce1060183d383b5a45581a94dd08dc8",
+      "fileCount": 31,
+      "builtFilesIdenticalToAcceptedCandidate": 24,
+      "allInstalledFilesMatchFinalPackage": true,
+      "actualSettingsPage": true,
+      "actualRemote200": true
+    }
+  },
+  "notRun": [
+    "0.1.11 actual Desktop UI and user restart",
+    "real official account / API model calls",
+    "cross-machine remote / WAN"
+  ],
+  "operatorRestart": "User will restart later; running Desktop was not restarted or modified.",
+  "externalChanges": {
+    "desktopInstalled": false,
+    "desktopRestarted": false,
+    "gitCommit": false,
+    "gitPush": false,
+    "release": false
+  },
+  "evidenceNotes": "Typography and button coordinates measured in actual isolated Web; routing policy and background chain use synthetic adapters and credential state.",
+  "rollback": "Restore previous compatible package plus complete pre-upgrade memory and profile backup while Host is stopped."
+}

@@ -21,10 +21,12 @@ await mkdir('test-runs',{recursive:true})
 const home=await mkdtemp(resolve('test-runs','production-source-'))
 process.env.DSH_HOME=home
 const cwd=join(home,'project-A');await mkdir(cwd)
+const officialApiDefault=process.argv.includes('--official-api-default'),officialDefault=officialApiDefault||process.argv.includes('--official-default'),fixtureProvider=officialApiDefault?'deepseek-official':officialDefault?'deepseek-account':'fixture'
 const reasoningRegression=process.argv.includes('--reasoning-regression')
 const consolidationContract=process.argv.includes('--consolidation-contract')
 const ctx=new Context(),calls=[],backgroundConfigs=[];let kernel,agent
 class FixedAdapter extends LlmAdapter {
+  async listModels(provider){return [{provider,id:'fixed',name:'Fixed model'}]}
   async resolveModel(provider,model){return reasoningRegression?{provider,id:model,name:model,reasoning:{efforts:[{id:'off',name:'Off'},{id:'high',name:'High'}],defaultEffort:'high'}}:super.resolveModel(provider,model)}
   async *stream(options){
     const prompt=options.messages.filter(m=>m.role==='user').flatMap(m=>typeof m.content==='string'?[m.content]:m.content.filter(b=>b.type==='text').map(b=>b.text)).join('\n')
@@ -77,12 +79,22 @@ try{
   await ctx.plugin(Tools);await ctx.plugin(Commands);await ctx.plugin(Projections)
   await ctx.plugin(Persistence,{root:join(home,'sessions')})
   await ctx.plugin(AgentLoop,{agents:[]})
-  ctx.llm.registerAdapter(['fixture'],new FixedAdapter())
+  const fixtureProviders=officialApiDefault?['deepseek-account','deepseek-official']:[fixtureProvider]
+  ctx.llm.registerAdapter(fixtureProviders,new FixedAdapter())
+  if(officialApiDefault){
+    ctx.llm.registerConfigurableProviders([{provider:'deepseek-official',displayName:'Official fixture',settingsNs:'api-fixture',settingsPath:[]}])
+    ctx.provide('settings',{describe:()=>[{ns:'api-fixture',value:{apiKeyEnv:'FAKE_MEMORY_API_KEY'}}]})
+    ctx.provide('credentials',{describe:async ref=>({configured:ref==='FAKE_MEMORY_API_KEY'})})
+  }
   ctx.provide('webServer',{host:'127.0.0.1'});ctx.provide('configEditor',{})
-  kernel=await ctx.plugin(plugin,{memoryProfileId:'source-fixture',projectUse:true,projectGenerate:true,consent:true,provider:'fixture',model:'fixed'})
-  agent=await ctx.agents.create({sessionId:SessionId(randomUUID()),meta:{cwd},agentOptions:{provider:'fixture',model:'fixed'}})
+  kernel=await ctx.plugin(plugin,{memoryProfileId:'source-fixture',projectUse:true,projectGenerate:true,consent:true,...(!officialDefault?{provider:fixtureProvider,model:'fixed'}:{})})
+  assert.deepEqual(JSON.parse((await ctx.memory.invoke({action:'providers'},new AbortController().signal)).json),fixtureProviders.map(id=>({id,name:id})))
+  assert.deepEqual(JSON.parse((await ctx.memory.invoke({action:'models',provider:fixtureProvider},new AbortController().signal)).json),[{id:'fixed',name:'Fixed model'}])
+  await assert.rejects(ctx.memory.invoke({action:'models',provider:'unconfigured'},new AbortController().signal),/PROVIDER_UNAVAILABLE/)
+  if(officialDefault)assert.deepEqual((await overview()).route,{provider:fixtureProvider,model:'fixed'})
+  agent=await ctx.agents.create({sessionId:SessionId(randomUUID()),meta:{cwd},agentOptions:{provider:fixtureProvider,model:'fixed'}})
   agent.agent.followup(createUserMessage({content:[{type:'text',text:'本项目的数据库操作放在 src/repositories。'}],source:{kind:'user'}}))
-  await wait(async()=>agent.agent.status==='idle'&&(await overview()).jobs.some(j=>j.kind==='extract')&&(await overview()).budget.credit>=30000)
+  await wait(async()=>agent.agent.status==='idle'&&(await overview()).jobs.some(j=>j.kind==='extract'))
   advanceFixtureJobs();await triggerProductionTick()
   await wait(async()=>(await overview()).jobs.some(j=>j.kind==='extract'&&['retry','failed','succeeded'].includes(j.state)))
   const extracted=(await overview()).jobs.find(j=>j.kind==='extract')
@@ -116,5 +128,6 @@ try{
     assert.equal(schemaError.error.issues[0].code,'invalid_type')
     console.log('PASS consolidation JSON examples → production extract/consolidate; invalid revision still rejected (FIXTURE model)')
   }
+  if(officialDefault)console.log('PASS default '+fixtureProvider+' → production extract → consolidate (FIXTURE model and credential metadata)')
   console.log(reasoningRegression?'PASS background off selection → extract → consolidate; foreground High and output cap 1024 unchanged (FIXTURE model)':'PASS production plugin context → default zstd log → extract → consolidate (FIXTURE model)')
 }finally{await agent?.dispose();await kernel?.dispose();await ctx.fiber.dispose()}

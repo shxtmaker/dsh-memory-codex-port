@@ -1,0 +1,106 @@
+{
+  "date": "2026-10-04",
+  "version": "0.1.10",
+  "hostVersion": "0.2.0-rc.2",
+  "scope": "local candidate; isolated Windows Host and loopback Web",
+  "status": "PASS",
+  "changes": {
+    "configuredProviderAndModelSelector": true,
+    "noBackgroundCreditGate": true,
+    "noDailyTokenGate": true,
+    "perCallAlarm": {
+      "defaultTokens": 10000,
+      "min": 1,
+      "max": 1000000,
+      "comparison": "usage > threshold",
+      "thresholdCapturedAtCallStart": true,
+      "taskContinuesAfterAlarm": true,
+      "unknownUsageDoesNotPause": true
+    },
+    "settingsDecorativeIconsRemoved": true,
+    "latestSessionAndExtractDefault": true,
+    "historyExpandable": true
+  },
+  "checks": {
+    "build": "PASS",
+    "typecheck": "PASS",
+    "automated": {
+      "status": "PASS",
+      "passed": 9,
+      "failed": 0
+    },
+    "nativeHost": "PASS (FIXTURE model)",
+    "web": [
+      {
+        "name": "A1/A3 actual loopback Web",
+        "status": "PASS",
+        "sourceDetails": true,
+        "conflictPreservesDraft": true,
+        "manualSave": true,
+        "pageFileBrowser": true,
+        "export": true,
+        "doubleSwitch": true,
+        "clearScopeIsolation": true
+      },
+      {
+        "name": "non-loopback actual Web",
+        "status": "BLOCKED",
+        "reason": "Harness CLI refuses non-loopback binding for safety; no override attempted"
+      },
+      {
+        "name": "0.1.10 configured catalog and per-call alert settings",
+        "status": "PASS",
+        "hostCatalog": true,
+        "providerModelCascade": true,
+        "routeSaveAndRestart": true,
+        "alarmDefault": 10000,
+        "alarmValidation": true,
+        "alarmSaveAndRestart": true,
+        "pageAlarm": true,
+        "iconsRemoved": true,
+        "latestSessionDefault": true,
+        "latestExtractDefault": true,
+        "historyExpandable": true,
+        "creditAndDailyUiRemoved": true,
+        "fixture": "synthetic catalogs and historical usage; no real provider call"
+      }
+    ],
+    "finalPackage": {
+      "status": "PASS",
+      "sha256": "cb7347e399557ac530c384a15d7a1f9f9d10a6cb684097dc194a65133a5d855f",
+      "fileCount": 30,
+      "builtFilesIdenticalToAcceptedCandidate": 23,
+      "allInstalledFilesMatchFinalPackage": true,
+      "actualSettingsPage": true,
+      "actualRemote200": true,
+      "actualAlarmDefault": 10000
+    }
+  },
+  "retainedFailures": [
+    {
+      "step": "initial Web iteration",
+      "status": "FAILED",
+      "reason": "Test read the old route before asynchronous config persistence completed.",
+      "repair": "Poll actual Host route and config file, then restart and assert persisted values."
+    },
+    {
+      "step": "repeated Web fixture",
+      "status": "FAILED",
+      "reason": "EEXIST for reused legacy fixture directory.",
+      "repair": "Use a distinct legacy profile id on each run."
+    }
+  ],
+  "notRun": [
+    "0.1.10 actual installed Desktop UI",
+    "0.1.10 real provider calls",
+    "cross-machine remote / WAN"
+  ],
+  "externalChanges": {
+    "dailyDesktopInstalled": false,
+    "gitCommit": false,
+    "gitPush": false,
+    "release": false
+  },
+  "evidenceNotes": "Model catalogs, usage and historical alarm records are synthetic fixtures; actual Host, Remote, installed package and Web page were used.",
+  "rollback": "Restore previous package and complete pre-upgrade memory directory plus profile configuration while Host is stopped."
+}

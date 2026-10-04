@@ -4,8 +4,13 @@ import { z } from 'zod'
 import { extractionSchema, proposalSchema, redact, tokens } from './shared.ts'
 import { StorageWorker } from './storage/worker-client.ts'
 import type { Job, MemoryItem, Source } from './contracts.ts'
+import type { ModelRoute } from './model-route.ts'
 
 export interface ModelReply { text: string; usage: number | null; finish?: string }
+/** 流式调用失败后仍保留已经收到的用量，不携带供应商错误正文。 */
+export class ModelCallError extends Error {
+  constructor(readonly usage:number|null,readonly finish?:string,code='MODEL_CALL_FAILURE'){super(code)}
+}
 /** 诊断只含固定字段路径和校验类型，不包含供应商正文、错误原文或字段值。 */
 function modelFailure(error:unknown,reply:ModelReply|undefined):{code:string;diagnostic:string} {
   if(reply?.finish==='max-tokens')return {code:'MODEL_OUTPUT_TRUNCATED',diagnostic:''}
@@ -19,11 +24,12 @@ function modelFailure(error:unknown,reply:ModelReply|undefined):{code:string;dia
   return {code:error instanceof Error&&/^[A-Z_]+$/.test(error.message)?error.message:'MODEL_CALL_FAILURE',diagnostic:''}
 }
 export interface EngineOptions {
-  consent: () => boolean; route: () => { provider: string; model: string }
-  idleMs: () => number; intervalMs: () => number; dailyLimit: () => number; outputLimit: () => number
+  consent: () => boolean; route: () => ModelRoute | Promise<ModelRoute>
+  idleMs: () => number; intervalMs: () => number; outputLimit: () => number
   foregroundBusy: () => boolean
+  routeAllowed?: (route:ModelRoute) => boolean
   readSource: (source: Source, signal: AbortSignal) => Promise<string>
-  model: (prompt: string, maxOutput: number, signal: AbortSignal) => Promise<ModelReply>
+  model: (prompt: string, maxOutput: number, signal: AbortSignal, route:ModelRoute) => Promise<ModelReply>
 }
 export interface Evidence { id: string; session:string; text: string; cost: number; records: MemoryItem[]; epochs: Record<string,number> }
 /** 截止覆盖整个前台插件链；晚到分支只能释放资源。 */
@@ -45,7 +51,6 @@ export class MemoryEngine {
   readonly staticCost = { policyBytes: tokens(POLICY), toolSchemaBytes: tokens(JSON.stringify(MEMORY_TOOL)) }
   constructor(readonly storage: StorageWorker, private options: EngineOptions) {}
   async capture(source: Source): Promise<unknown> { return this.storage.call('capture',{source,idleMs:this.options.idleMs()}) }
-  async credit(id: string, amount: number): Promise<void> { await this.storage.call('credit',{id,tokens:amount}) }
   async recall(session: string, project: string, query: string, turn: number, caller: AbortSignal): Promise<Evidence | null> {
     if(this.stopped || caller.aborted || this.attempts.get(session)===turn)return null
     this.attempts.set(session,turn)
@@ -78,12 +83,11 @@ export class MemoryEngine {
   cancel():void {this.active?.controller.abort()}
   tick():Promise<void> {
     if(this.active || this.stopped || this.options.foregroundBusy() || !this.options.consent())return Promise.resolve()
-    const route=this.options.route();if(!route.provider||!route.model)return Promise.resolve()
     const controller=new AbortController()
-    const promise=this.run(controller.signal).catch(()=>{this.lastError='BACKGROUND_UNAVAILABLE'}).finally(()=>{this.active=undefined})
+    const promise=(async()=>{const route=await this.options.route();if(!route.provider||!route.model||controller.signal.aborted||!this.options.consent()||this.options.routeAllowed?.(route)===false)return;await this.run(controller.signal,route)})().catch(()=>{this.lastError='BACKGROUND_UNAVAILABLE'}).finally(()=>{this.active=undefined})
     this.active={controller,promise};return promise
   }
-  private async run(signal:AbortSignal):Promise<void> {
+  private async run(signal:AbortSignal,route:ModelRoute):Promise<void> {
     const jobs=await this.storage.call<Job[]>('pending',{},signal)
     for(const job of jobs){
       if(signal.aborted||this.options.foregroundBusy())return
@@ -99,18 +103,18 @@ export class MemoryEngine {
         }else{
           const input=await this.storage.call<{hash:string;unchanged:boolean;inputs:{output:{items:unknown[]}}[];removed:string[];items:MemoryItem[]}>('consolidationInput',{scope:job.scope},signal)
           inputHash=input.hash;unchanged=input.unchanged
-          // 无差异或空集合不需要模型，也不消耗 credit。
+          // 无差异或空集合不需要模型调用。
           if(unchanged||!input.inputs.some(row=>row.output.items.length)){await this.storage.call('completeNoop',{id:job.id,hash:inputHash},signal);continue}
           prompt=CONSOLIDATE_PROMPT+'\n'+JSON.stringify({scope:job.scope,inputs:input.inputs,removed:input.removed,items:input.items.filter(i=>!i.manual&&!i.pinned).slice(0,24)})
         }
         const outputLimit=this.options.outputLimit(),reserve=tokens(prompt)+outputLimit
-        const leased=await this.storage.call<Job|null>('lease',{id:job.id,reserve:unchanged?1:reserve,dailyLimit:this.options.dailyLimit()},signal)
+        const leased=await this.storage.call<Job|null>('lease',{id:job.id,reserve:unchanged?1:reserve},signal)
         if(!leased)continue
         if(unchanged){await this.storage.call('settleJob',{id:job.id,fence:leased.fence,usage:0,state:'succeeded'});continue}
         let reply:ModelReply|undefined
         const timeout=AbortSignal.timeout(90000),modelSignal=AbortSignal.any([signal,timeout])
         try {
-          reply=await this.options.model(redact(prompt),outputLimit,modelSignal)
+          reply=await this.options.model(redact(prompt),outputLimit,modelSignal,route)
           modelSignal.throwIfAborted()
           if(reply.finish==='max-tokens')throw new Error('MODEL_OUTPUT_TRUNCATED')
           if(reply.finish==='error'||reply.finish==='aborted')throw new Error('MODEL_CALL_FAILURE')
@@ -122,17 +126,18 @@ export class MemoryEngine {
               if(refs.some(e=>!e))throw new Error('INVALID_SOURCE_REF')
               if(!refs.some(e=>e?.role==='user')||item.status==='verified'||item.status==='completed')item.status='suggested'
             }
-            await this.storage.call('commitExtraction',{id:job.id,fence:leased.fence,hash:source!.hash,output,intervalMs:this.options.intervalMs(),route:this.options.route(),usage:reply.usage},modelSignal)
+            await this.storage.call('commitExtraction',{id:job.id,fence:leased.fence,hash:source!.hash,output,intervalMs:this.options.intervalMs(),route,usage:reply.usage},modelSignal)
           }else{
             const output=proposalSchema.parse(parsed)
             await this.storage.call('commitProposal',{id:job.id,fence:leased.fence,hash:inputHash,output},modelSignal)
           }
           await this.storage.call('settleJob',{id:job.id,fence:leased.fence,usage:reply.usage,modelFinish:reply.finish,state:job.kind==='extract'&&!extractionSchema.parse(parsed).items.length?'succeeded_no_output':'succeeded'})
         }catch(error){
-          const {code,diagnostic}=modelFailure(error,reply)
+          const failedReply=reply??(error instanceof ModelCallError?{text:'',usage:error.usage,finish:error.finish}:undefined)
+          const {code,diagnostic}=modelFailure(error,failedReply)
           this.lastError=code
-          // 失败和重试各自收费；不透明的 usage 保守计预留并暂停后续自动任务。
-          await this.storage.call('settleJob',{id:job.id,fence:leased.fence,usage:reply?.usage??null,modelFinish:reply?.finish,diagnostic,state:signal.aborted?'cancelled':leased.attempts>=2?'failed':'retry',error:code})
+          // 失败和重试分别计量；未知用量单独统计，不阻塞后续任务。
+          await this.storage.call('settleJob',{id:job.id,fence:leased.fence,usage:failedReply?.usage??null,modelFinish:failedReply?.finish,diagnostic,state:signal.aborted?'cancelled':leased.attempts>=2?'failed':'retry',error:code})
         }
       }catch {if(signal.aborted)return;this.lastError='SOURCE_UNAVAILABLE';await this.storage.call('failSource',{id:job.id}).catch(()=>{})}
     }

@@ -1,0 +1,26 @@
+{
+  "status": "PASS",
+  "hostVersion": "0.2.0-rc.2",
+  "environment": "actual isolated loopback Web; no model calls",
+  "from": "0.1.9",
+  "to": "0.1.10",
+  "upgradeApplication": "restart-required",
+  "beforeRestart": {
+    "diskVersion": "0.1.10",
+    "newActionRejected": true,
+    "error": "typert gateway: memory/invoke: wire field \"request\" failed boundary validation"
+  },
+  "afterRestart": {
+    "newActionAccepted": true,
+    "backgroundBudgetRemoved": true
+  },
+  "realDesktopRestart": "NOT_RUN",
+  "realModel": "NOT_RUN",
+  "observedDesktop": {
+    "installedVersion": "0.1.10",
+    "installedLibFilesMatchDeliveredPackage": 23,
+    "hostProcessStarted": "2026-10-04T16:04:08+08:00",
+    "pluginFilesUpdated": "2026-10-04T19:48:43+08:00",
+    "fullDesktopRestart": "NOT_RUN"
+  }
+}

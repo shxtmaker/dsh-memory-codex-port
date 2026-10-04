@@ -51,11 +51,11 @@ try {
   handle=await ctx.agents.create({sessionId:SessionId(randomUUID()),meta:{cwd},agentOptions:{provider:'fixture',model:'fixed'}})
   handle.agent.followup(createUserMessage({content:[{type:'text',text:'请把数据库操作放在 SQLite Worker 中。'}],source:{kind:'user'}}))
   await wait(()=>handle.agent.status==='idle'&&Number(handle.agent.session.seq)>3);await ctx.sessions.flush(handle.agent.session)
-  let overview;await wait(async()=>{overview=JSON.parse((await ctx.memory.invoke({action:'overview'},new AbortController().signal)).json);return overview.jobs.length>0&&overview.budget.credit>=30000})
+  let overview;await wait(async()=>{overview=JSON.parse((await ctx.memory.invoke({action:'overview'},new AbortController().signal)).json);return overview.jobs.length>0})
   const project=overview.projects.find(p=>p.root===cwd.toLowerCase());assert(project)
   const root=join(home,'memory','native-fixture'),digest=s=>createHash('sha256').update(s).digest('hex')
   const store=new StorageWorker(root,digest(userInfo().username+'\0'+homedir()),digest(hostname()+'\0'+resolve(home)),'native-fixture');await store.ready
-  engine=new MemoryEngine(store,{consent:()=>true,route:()=>({provider:'fixture',model:'fixed'}),idleMs:()=>600000,intervalMs:()=>1800000,dailyLimit:()=>20000,outputLimit:()=>1024,foregroundBusy:()=>ctx.agents.list().some(a=>a.status==='running'),readSource:async(source,signal)=>{
+  engine=new MemoryEngine(store,{consent:()=>true,route:()=>({provider:'fixture',model:'fixed'}),idleMs:()=>600000,intervalMs:()=>1800000,outputLimit:()=>1024,foregroundBusy:()=>ctx.agents.list().some(a=>a.status==='running'),readSource:async(source,signal)=>{
     const reader=await ctx.sessionPersistence.open(SessionId(source.sessionId),'read',{signal});try{const {events}=await reader.read(source.start,source.end-source.start+1,{signal});return plugin.transcript(events)}finally{await reader.close()}
   },model:async(prompt,maxTokens,signal)=>{let text='',usage=null;const prepared=await ctx.llm.prepareCall({provider:'fixture',model:'fixed',maxTokens},signal);for await(const chunk of prepared.stream({...prepared.config,messages:[{role:'user',content:[{type:'text',text:prompt}]}],signal})){if(chunk.type==='text-delta')text+=chunk.text;if(chunk.type==='usage')usage=chunk.usage.totalTokens}return {text,usage}}})
   // 只前移隔离夹具任务的等待时钟。生产默认仍为 10/30 分钟。
@@ -88,7 +88,6 @@ try {
   capability.host='remote-fixture'
   const remoteOverview=JSON.parse((await ctx.memory.invoke({action:'overview',sessionId:second.agent.id},new AbortController().signal)).json);assert.equal(remoteOverview.writable,false);assert(remoteOverview.projects.some(p=>p.id===project.id))
   await assert.rejects(ctx.memory.invoke({action:'save',scope:'global',title:'拒绝',content:'拒绝'},new AbortController().signal),/READ_ONLY_CONNECTION/)
-  await assert.rejects(ctx.memory.invoke({action:'topUpCredit',requestId:randomUUID(),confirmation:'TOP_UP_CREDIT:10000'},new AbortController().signal),/READ_ONLY_CONNECTION/)
   await assert.rejects(ctx.memory.invoke({action:'list',scope:project.id},new AbortController().signal),/SCOPE_DENIED/)
   assert.equal(JSON.parse((await ctx.memory.invoke({action:'list',scope:project.id,sessionId:second.agent.id},new AbortController().signal)).json).length,1)
   capability.host='127.0.0.1'

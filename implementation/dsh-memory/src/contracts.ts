@@ -1,6 +1,7 @@
 /** 浏览器与 Host 之间的管理请求。作用域由 Host 解析。 */
 export interface ManageRequest {
-  action: 'overview' | 'list' | 'read' | 'save' | 'remove' | 'clear' | 'files' | 'file' | 'export' | 'rebuild' | 'job' | 'projectPolicy' | 'sources' | 'removeSource' | 'topUpCredit'
+  action: 'overview' | 'providers' | 'models' | 'list' | 'read' | 'save' | 'remove' | 'clear' | 'files' | 'file' | 'export' | 'rebuild' | 'job' | 'projectPolicy' | 'sources' | 'removeSource'
+  provider?: string
   scope?: string
   id?: string
   title?: string
@@ -13,7 +14,6 @@ export interface ManageRequest {
   use?: boolean
   generate?: boolean
   sessionId?: string
-  requestId?: string
 }
 /** JSON 正文经过请求操作所属的校验器解析。 */
 export interface ManageResult { json: string }
@@ -30,11 +30,15 @@ export interface Source {
 }
 /** 主机上的持久项目身份，严格按工作树隔离。 */
 export interface Project { id: string; root: string; target: string; name: string; use: boolean | null; generate: boolean | null }
-/** 后台任务的持久租约和计费预留。 */
+/** 后台任务的持久租约与逐次计量。 */
 export interface Job {
   id: string; key: string; scope: string; kind: 'extract' | 'consolidate'; source: string
   epoch: number; fence: number; leaseUntil: number; attempts: number; retryAt: number
   state: string; reserved: number; error: string; createdAt: number
-  intervalMs?: number; settledAt?: number
+  intervalMs?: number; settledAt?: number; updatedAt?: number
   attemptUsage?: number | null; diagnostic?: string; modelFinish?: string
+}
+/** 每次后台模型调用独立计量；未知用量不冒充实际账单。 */
+export interface DailyUsage {
+  day: string; timezone: string; tokens: number; calls: number; unknownCalls: number
 }

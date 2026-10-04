@@ -13,12 +13,15 @@ import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
+import type {} from '@deepseek-ai/dsh-settings'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { z } from 'zod'
 import { Config } from './config.ts'
-import { MemoryEngine, withinDeadline, POLICY, MEMORY_TOOL, type Evidence } from './engine.ts'
+import { MemoryEngine, ModelCallError, withinDeadline, POLICY, MEMORY_TOOL, type Evidence } from './engine.ts'
 import { StorageWorker } from './storage/worker-client.ts'
 import { MemoryRemote } from './remote-service.ts'
 import { redact } from './shared.ts'
+import { resolveMemoryRoute } from './model-route.ts'
 import type { Source, Project, MemoryItem, ManageRequest, ManageResult } from './contracts.ts'
 const evidenceMetadata=z.object({epochs:z.record(z.string(),z.number()),items:z.array(z.object({id:z.string(),scope:z.string(),revision:z.number()}))})
 export { Config } from './config.ts'
@@ -69,7 +72,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const pending=new Map<string,Evidence>()
   const toolPending=new Map<string,Evidence>()
   const attemptedTurns=new Map<string,number>()
-  let stopped=false,policyReady:Promise<unknown>=Promise.resolve()
+  let stopped=false,policyKey='',policyReady:Promise<unknown>=Promise.resolve()
   const projectFor=(session:Session):Promise<Project>=>{
     const cwd=session.header.cwd
     if(!cwd)return Promise.reject(new Error('PROJECT_UNAVAILABLE'))
@@ -77,34 +80,50 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     if(!result){result=realpath(cwd).then(root=>storage.call<Project>('project',{root:process.platform==='win32'?root.toLowerCase():root,target:trust,name:basename(root)}));projects.set(cwd,result)}
     return result
   }
+  const resolveRoute=()=>resolveMemoryRoute(ctx.llm,{provider:config.provider.get(),model:config.model.get()},async()=>{
+    const credentials=ctx.get('credentials'),settings=ctx.get('settings')
+    const provider=ctx.llm.listConfigurableProviders().find(p=>p.provider==='deepseek-official')
+    let profile:unknown=provider?settings?.describe({redactSecrets:true}).find(s=>s.ns===provider.settingsNs)?.value:undefined
+    for(const key of provider?.settingsPath??[])profile=typeof profile==='object'&&profile!==null?Reflect.get(profile,key):undefined
+    const ref=typeof profile==='object'&&profile!==null?Reflect.get(profile,'apiKeyEnv'):undefined
+    if(!credentials||typeof ref!=='string')return false
+    return (await credentials.describe(credentialRef(ref))).configured
+  })
   const engine=new MemoryEngine(storage,{
-    consent:()=>config.consent.get(),route:()=>({provider:config.provider.get(),model:config.model.get()}),
+    consent:()=>config.consent.get(),route:resolveRoute,
     idleMs:()=>config.idleMinutes.get()*60000,intervalMs:()=>config.consolidationMinutes.get()*60000,
-    dailyLimit:()=>config.dailyTokens.get(),outputLimit:()=>config.outputTokens.get(),
+    outputLimit:()=>config.outputTokens.get(),
     foregroundBusy:()=>ctx.agents.list().some(agent=>agent.status==='running'),
+    routeAllowed:route=>(!config.provider.get()&&!config.model.get())||(config.provider.get()===route.provider&&config.model.get()===route.model),
     readSource:async(source,signal)=>{
       const live=ctx.sessions.get(SessionId(source.sessionId))
       if(live)await ctx.sessions.flush(live)
       const handle=await ctx.sessionPersistence.open(SessionId(source.sessionId),'read',{signal})
       try {const {events}=await handle.read(source.start,source.end-source.start+1,{signal});if(events.at(-1)?.seq!==source.end)throw new Error('SOURCE_NOT_FLUSHED');return transcript(events)}finally{await handle.close()}
     },
-    model:async(prompt,maxTokens,signal)=>{
-      const route={provider:config.provider.get(),model:config.model.get()}
+    model:async(prompt,maxTokens,signal,route)=>{
+      // 旧路由已失效时，默认选择只用于展示；须重新保存并确认后才能发送。
+      const stored={provider:config.provider.get(),model:config.model.get()}
+      if((stored.provider||stored.model)&&(stored.provider!==route.provider||stored.model!==route.model))throw new Error('ROUTE_CONFIRMATION_REQUIRED')
       // 后台结构化任务只选择路由明确声明的off；不改变前台或假定其他模型支持它。
       const modelInfo=await ctx.llm.resolveModelInfo(route.provider,route.model,signal)
       const off=modelInfo.reasoning?.efforts.find(effort=>effort.id==='off')?.id
       const prepared=await ctx.llm.prepareCall({...route,maxTokens,...(off?{reasoningEffort:off}:{})},signal)
       let text='',usage:number|null=null,finish:string|undefined
-      for await(const chunk of prepared.stream({...prepared.config,messages:[{role:'user',content:[{type:'text',text:prompt}]}],signal})){
+      try {for await(const chunk of prepared.stream({...prepared.config,messages:[{role:'user',content:[{type:'text',text:prompt}]}],signal})){
         if(chunk.type==='text-delta')text+=chunk.text
         if(text.length>20000)throw new Error('OUTPUT_TOO_LARGE')
         if(chunk.type==='usage')usage=chunk.usage.totalTokens??chunk.usage.inputTokens+chunk.usage.outputTokens+(chunk.usage.cacheReadTokens??0)+(chunk.usage.cacheWriteTokens??0)
         if(chunk.type==='finish')finish=['stop','max-tokens','error','aborted','tool-calls'].includes(chunk.reason.kind)?chunk.reason.kind:'other'
       }
+      }catch(error){throw new ModelCallError(usage,finish,error instanceof Error&&/^[A-Z_]+$/.test(error.message)?error.message:'MODEL_CALL_FAILURE')}
       return {text:redact(text),usage,finish}
     },
   })
   function policy():void {
+    const nextKey=JSON.stringify([config.globalUse.get(),config.globalGenerate.get(),config.projectUse.get(),config.projectGenerate.get(),config.consent.get(),config.provider.get(),config.model.get()])
+    if(nextKey===policyKey)return
+    policyKey=nextKey
     engine.cancel()
     policyReady=policyReady.then(()=>storage.call('policy',{global:{use:config.globalUse.get(),generate:config.globalGenerate.get()&&config.consent.get()},projects:{use:config.projectUse.get(),generate:config.projectGenerate.get()&&config.consent.get()}})).catch(()=>{storageAvailable=false})
   }
@@ -131,7 +150,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     void engine.tick()
   })
   ctx.on('session/event',(session,event)=>{
-    if(event.type==='assistant/message'&&event.data.usage){const usage=event.data.usage;void engine.credit(`${session.id}:${event.seq}`,usage.totalTokens??usage.inputTokens+usage.outputTokens+(usage.cacheReadTokens??0)+(usage.cacheWriteTokens??0)).catch(()=>{})}
     if(event.type==='user/message'&&event.data.source.kind==='dsh-memory'){
       const evidence=pending.get(event.data.source.reservation)
       if(evidence){pending.delete(evidence.id);void engine.settle(evidence.id,`${session.id}:${event.seq}`).catch(()=>{})}
@@ -147,19 +165,26 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   const isWritable=():boolean=>ctx.get('webServer')?.host==='127.0.0.1' && !!ctx.get('configEditor')
   const operation=async(request:ManageRequest,signal:AbortSignal):Promise<ManageResult>=>{
-    const reads=['overview','list','read','files','file','job','sources']
+    const reads=['overview','providers','models','list','read','files','file','job','sources']
     if(!reads.includes(request.action)&&!isWritable())throw new Error('READ_ONLY_CONNECTION')
     await policyReady
+    if(request.action==='providers')return {json:JSON.stringify(ctx.llm.listProviders().map(({id,name})=>({id,name})))}
+    if(request.action==='models'){
+      if(!ctx.llm.listProviders().some(p=>p.id===request.provider))throw new Error('PROVIDER_UNAVAILABLE')
+      const models=await ctx.llm.listModels(request.provider!)
+      signal.throwIfAborted()
+      return {json:JSON.stringify(models.map(({id,name})=>({id,name})))}
+    }
     const scopes=['global']
     if(!isWritable()&&request.sessionId){const session=ctx.sessions.get(SessionId(request.sessionId));if(session&&!session.header.origin)scopes.push((await projectFor(session)).id)}
     if(!isWritable() && request.scope && !scopes.includes(request.scope))throw new Error('SCOPE_DENIED')
     if(request.action==='clear'){await Promise.allSettled([...captureTasks]);for(const session of ctx.sessions.list())scheduleCapture(session,Number(session.seq)-1);await Promise.allSettled([...captureTasks]);engine.cancel()}
     const {action,...args}=request
-    let result=await storage.call(action,args,signal)
+    let result=await storage.call(action,action==='overview'?{...args,...(!isWritable()?{usageScopes:scopes}:{})}:args,signal)
     if(action==='overview'){
       const value=result as {projects:Project[];scopes:{id:string}[];jobs:{scope:string}[];evidence:{session:string}[];root:string}
       if(!isWritable()){value.projects=value.projects.filter(p=>scopes.includes(p.id));value.scopes=value.scopes.filter(s=>scopes.includes(s.id));value.jobs=value.jobs.filter(j=>scopes.includes(j.scope));value.evidence=value.evidence.filter(e=>e.session===request.sessionId);value.root=''}
-      result={...value,writable:isWritable(),revealStore:false,route:{provider:config.provider.get(),model:config.model.get()},consent:config.consent.get(),lastError:engine.lastError,staticCost:engine.staticCost,storageAvailable}
+      result={...value,writable:isWritable(),revealStore:false,route:await resolveRoute(),consent:config.consent.get(),lastError:engine.lastError,staticCost:engine.staticCost,storageAvailable}
     }
     if(!isWritable()&&action==='read'&&!scopes.includes((result as MemoryItem).scope))throw new Error('SCOPE_DENIED')
     if(!isWritable()&&action==='job'&&result&&!scopes.includes((result as {scope:string}).scope))throw new Error('SCOPE_DENIED')

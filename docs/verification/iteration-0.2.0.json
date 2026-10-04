@@ -1,0 +1,141 @@
+{
+  "date": "2026-10-04",
+  "version": "0.2.0",
+  "tag": "V0.2.0",
+  "hostVersion": "0.2.0-rc.2",
+  "status": "PASS",
+  "scope": "daily background token usage replacing alarms; actual isolated Windows Host and loopback Web",
+  "changes": {
+    "alarmConfigurationRemoved": true,
+    "alarmMessagesRemoved": true,
+    "knownTotalTokensSummedPerAttempt": true,
+    "retriesAndFailuresCounted": true,
+    "streamFailureRetainsReceivedUsage": true,
+    "unknownUsageNotEstimated": true,
+    "localCalendarDayAtSettlement": true,
+    "dstAware": true,
+    "scopeFilteredAggregation": true,
+    "restartPersistence": true,
+    "clearRetainsSpend": true,
+    "legacyAlertsNotBackfilled": true
+  },
+  "checks": {
+    "build": "PASS",
+    "typecheck": "PASS",
+    "automated": {
+      "passed": 15,
+      "failed": 0
+    },
+    "nativeHost": "PASS (FIXTURE model)",
+    "web": [
+      {
+        "name": "A1/A3 actual loopback Web",
+        "status": "PASS",
+        "sourceDetails": true,
+        "conflictPreservesDraft": true,
+        "manualSave": true,
+        "pageFileBrowser": true,
+        "export": true,
+        "doubleSwitch": true,
+        "clearScopeIsolation": true
+      },
+      {
+        "name": "non-loopback actual Web",
+        "status": "BLOCKED",
+        "reason": "Harness CLI refuses non-loopback binding for safety; no override attempted"
+      },
+      {
+        "name": "0.2.0 daily token usage replaces alarms",
+        "status": "PASS",
+        "hostCatalog": true,
+        "providerModelCascade": true,
+        "routeSaveAndRestart": true,
+        "alarmsRemoved": true,
+        "dailyUsage": 417,
+        "dailyUnknownCalls": 1,
+        "dailyRestartPersistence": true,
+        "dailyLiveUpdate": true,
+        "legacyAlarmIgnored": true,
+        "iconsRemoved": true,
+        "sameRowButtonsAligned": true,
+        "alignedEdges": [
+          {
+            "count": 2,
+            "aligned": true,
+            "height": 36
+          },
+          {
+            "count": 2,
+            "aligned": true,
+            "height": 36
+          },
+          {
+            "count": 3,
+            "aligned": true,
+            "height": 36
+          }
+        ],
+        "singleLine": [
+          {
+            "height": 36,
+            "inline": true,
+            "contained": true
+          }
+        ],
+        "controlHeight": 36,
+        "bodyTypography": "14px/22px",
+        "fontMatchesSettings": true,
+        "latestSessionDefault": true,
+        "latestExtractDefault": true,
+        "historyExpandable": true,
+        "creditAndDailyUiRemoved": true,
+        "fixture": "synthetic catalogs and historical usage; no real provider call"
+      }
+    ],
+    "visualInspection": "PASS (actual isolated Web screenshot)",
+    "finalPackage": {
+      "status": "PASS",
+      "hostVersion": "0.2.0-rc.2",
+      "environment": "isolated loopback Web",
+      "version": "0.2.0",
+      "sha256": "2ca808d71bb1bc48cbbded985238b5058c5816764b6d98be0ca09d8dbe412e2c",
+      "fileCount": 32,
+      "builtFilesIdenticalToAcceptedCandidate": 25,
+      "allInstalledFilesMatchFinalPackage": true,
+      "actualSettingsPage": true,
+      "actualRemote200": true,
+      "actualDailyUsage": 200,
+      "alarmsRemoved": true,
+      "realModel": "NOT_RUN",
+      "desktop": "NOT_RUN",
+      "realRemote": "BLOCKED"
+    }
+  },
+  "repairHistory": [
+    {
+      "check": "initial typecheck",
+      "status": "FAILED",
+      "cause": "function-valued locale entered generic state-label union",
+      "repair": "use string template for unknown-call count",
+      "recheck": "PASS"
+    },
+    {
+      "check": "initial Web test startup",
+      "status": "FAILED",
+      "cause": "fixture day-start variable shadowed Host startup function",
+      "repair": "rename fixture variable to usageDayStart",
+      "recheck": "PASS"
+    }
+  ],
+  "notRun": [
+    "V0.2.0 actual Desktop UI and user restart",
+    "real provider model calls",
+    "cross-machine remote / WAN"
+  ],
+  "externalChanges": {
+    "desktopInstalled": false,
+    "desktopRestarted": false
+  },
+  "publication": "GitHub and Gitea V0.2.0 publication requested; remote receipts recorded separately after upload.",
+  "evidenceNotes": "Host and Web use real plugin installation with fixed model adapters and synthetic usage fixtures. Web verifies 400 tokens after restart, live update to 417, unknown-call notice, and no alarm controls or messages."
+}

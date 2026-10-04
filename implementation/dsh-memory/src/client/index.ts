@@ -29,4 +29,4 @@ export function apply(ctx:Context):void {
     consumer.slots.inject('settings.section',()=>consumer.slots.register({name:'settings.section',id:'memory',order:65,label:()=>copy.nav,inject:()=>({operations})},MemorySettingsSection))
   }})
 }
-export interface ConfigView {globalUse:boolean;globalGenerate:boolean;projectUse:boolean;projectGenerate:boolean;consent:boolean;provider:string;model:string;idleMinutes:number;consolidationMinutes:number;dailyTokens:number;outputTokens:number}
+export interface ConfigView {globalUse:boolean;globalGenerate:boolean;projectUse:boolean;projectGenerate:boolean;consent:boolean;provider:string;model:string;idleMinutes:number;consolidationMinutes:number;outputTokens:number}

@@ -3,6 +3,7 @@ import { execFile,spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { readFile,writeFile,mkdir } from 'node:fs/promises'
 import { resolve,join } from 'node:path'
+import { localUsageDay } from '../src/usage-statistics.ts'
 import { DatabaseSync } from 'node:sqlite'
 import assert from 'node:assert/strict'
 import { chromium,expect } from '@playwright/test'
@@ -27,7 +28,7 @@ try {
   await command(['plugin','--profile',profile,'add',packagePath])
   assert.equal(JSON.parse(await readFile(installed,'utf8')).version,manifest.version)
   const patch=join(home,'profiles',profile,'cordis.patch.yml'),previous=await readFile(patch,'utf8'),documents=join(home,'documents');await mkdir(documents,{recursive:true})
-  await writeFile(patch,previous.replace(/^\[\]\s*$/m,'')+`\n- id: dsh-memory\n  config:\n    memoryProfileId: native-fixture\n    provider: fixture\n    model: fixed\n- id: workspace-controller\n  config:\n    documentsDirectory: '${documents}'\n- id: session-persistence-jsonl\n  config:\n    root: '${join(home,'sessions')}'\n    compression: none\n`)
+  await writeFile(patch,previous.replace(/^\[\]\s*$/m,'')+`\n- id: dsh-memory\n  config:\n    memoryProfileId: native-fixture\n    provider: fixture\n    model: fixed\n- id: llm-pi-ai\n  config:\n    providers:\n      fixture:\n        displayName: 页面测试供应商\n        api: openai-completions\n        baseURL: http://127.0.0.1:9/v1\n        models:\n          - id: fixed\n            name: 固定目录模型\n      other-fixture:\n        displayName: 第二供应商\n        api: openai-completions\n        baseURL: http://127.0.0.1:9/v1\n        models:\n          - id: other-fixed\n            name: 第二目录模型\n- id: workspace-controller\n  config:\n    documentsDirectory: '${documents}'\n- id: session-persistence-jsonl\n  config:\n    root: '${join(home,'sessions')}'\n    compression: none\n`)
   browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1500,height:1050}}),errors=[];page.setDefaultTimeout(8000);page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept())
   let url=await start('127.0.0.1',18438),origin=new URL(url).origin;await open(page,url)
   const projectA=join(home,'project-A'),projectB=join(home,'project-B');await mkdir(projectB,{recursive:true})
@@ -74,28 +75,75 @@ try {
   // 复用当前验收服务；仅在隔离home建立一个升级前已绑定的空配置档。
   await stop()
   const nativeDb=new DatabaseSync(join(home,'memory','native-fixture','state.sqlite'),{readOnly:true}),identity=nativeDb.prepare('SELECT owner,trust FROM memory_profiles').get();nativeDb.close()
-  const legacyRoot=join(home,'memory','grant-legacy-fixture');await mkdir(legacyRoot)
+  const legacyId='grant-legacy-'+Date.now(),legacyRoot=join(home,'memory',legacyId);await mkdir(legacyRoot)
   const legacyDb=new DatabaseSync(join(legacyRoot,'state.sqlite'))
   legacyDb.exec('CREATE TABLE memory_profiles(id TEXT PRIMARY KEY,owner TEXT NOT NULL,trust TEXT NOT NULL)')
-  legacyDb.prepare('INSERT INTO memory_profiles VALUES(?,?,?)').run('grant-legacy-fixture',identity.owner,identity.trust);legacyDb.close()
+  legacyDb.prepare('INSERT INTO memory_profiles VALUES(?,?,?)').run(legacyId,identity.owner,identity.trust);legacyDb.close()
   assert(profilePatch.includes('memoryProfileId: native-fixture'))
-  await writeFile(patch,profilePatch.replace('memoryProfileId: native-fixture','memoryProfileId: grant-legacy-fixture'))
+  await writeFile(patch,profilePatch.replace('memoryProfileId: native-fixture','memoryProfileId: '+legacyId+'\n    alarmTokens: 50'))
   url=await start('127.0.0.1',18438);origin=new URL(url).origin;await open(page,url)
-  assert.equal((await memory(page,origin,{action:'overview'})).budget.credit,0)
+  assert.equal((await memory(page,origin,{action:'overview'})).budget,undefined)
   await page.getByText('高级设置与后台状态',{exact:true}).click()
-  const topUp=page.getByRole('button',{name:'补充至10000 tokens',exact:true})
-  await expect(topUp).toBeEnabled();await topUp.click();await expect(topUp).toBeDisabled()
-  overview=await memory(page,origin,{action:'overview'});assert.equal(overview.budget.credit,10000);assert.equal(overview.budget.initialGranted,0);assert.equal(overview.budget.manualGranted,10000)
-  const dailyInput=page.getByRole('spinbutton',{name:'每日后台上限（tokens）',exact:true})
-  await expect(page.getByRole('button',{name:'保存每日上限',exact:true})).toBeEnabled()
-  await expect(dailyInput).toHaveValue('100000');await dailyInput.fill('50000')
-  await page.getByRole('button',{name:'保存每日上限',exact:true}).click();await expect(page.getByText(/今日后台已用：0 \/ 50000 tokens/)).toBeVisible()
-  await dailyInput.fill('100000');await page.getByRole('button',{name:'保存每日上限',exact:true}).click();await expect(page.getByText(/今日后台已用：0 \/ 100000 tokens/)).toBeVisible()
-  await page.getByRole('button',{name:'刷新',exact:true}).click();assert.equal((await memory(page,origin,{action:'overview'})).budget.credit,10000)
-  await page.screenshot({path:'evidence/web-credit.png',fullPage:true})
-  await stop();url=await start('127.0.0.1',18438);origin=new URL(url).origin;await open(page,url)
-  assert.equal((await memory(page,origin,{action:'overview'})).budget.credit,10000)
-  result.push({name:'A1/A4 credit and daily limit',status:'PASS',legacyNoAutomaticGrant:true,pageManualTopUp:true,grantsSeparatelyRecorded:true,dailyDefault:100000,dailyEdit:true,noRefillOnRefreshOrRestart:true})
+  assert.equal(await page.locator('.dm-icon').count(),0)
+  assert.equal(await page.getByText('后台可用额度',{exact:false}).count(),0)
+  assert.equal(await page.getByRole('button',{name:'补充至10000 tokens',exact:true}).count(),0)
+  assert.equal(await page.getByRole('spinbutton',{name:'每日后台上限（tokens）',exact:true}).count(),0)
+  const providerSelect=page.getByRole('combobox',{name:'供应商',exact:true}),modelSelect=page.getByRole('combobox',{name:'模型',exact:true})
+  await expect(providerSelect).toHaveValue('fixture');await expect(modelSelect).toHaveValue('fixed')
+  const providerRows=await memory(page,origin,{action:'providers'});assert(providerRows.some(p=>p.id==='fixture'))
+  assert(!providerRows.some(p=>p.id==='unconfigured'))
+  await providerSelect.selectOption('other-fixture');await expect(modelSelect.locator('option[value="other-fixed"]')).toHaveCount(1)
+  await expect(modelSelect).toHaveValue('');await modelSelect.selectOption('other-fixed')
+  await page.locator('.dm-route-line').getByRole('button',{name:'保存',exact:true}).click()
+  await expect(providerSelect).toHaveValue('other-fixture');await expect(modelSelect).toHaveValue('other-fixed')
+  await expect.poll(async()=>(await memory(page,origin,{action:'overview'})).route).toEqual({provider:'other-fixture',model:'other-fixed'})
+  await expect(page.getByRole('spinbutton',{name:'单次后台用量报警阈值（tokens）',exact:true})).toHaveCount(0)
+  await expect(page.getByRole('button',{name:'保存报警阈值',exact:true})).toHaveCount(0)
+  await expect(page.locator('.dm-usage-stat')).toHaveText('每次提炼、整理和重试分别按供应商返回的总 tokens 计量。今日已使用0 token。')
+  await stop()
+  // 停止Host后在隔离数据库写入历史夹具；页面与Remote仍使用真实插件。
+  const historyDb=new DatabaseSync(join(legacyRoot,'state.sqlite')),now=Date.now()
+  for(const [id,kind,time] of [['old-extract','extract',now-2000],['new-extract','extract',now-1000],['new-consolidate','consolidate',now]]){
+    const job={id,key:id,scope:'global',kind,source:'',epoch:0,fence:1,leaseUntil:0,attempts:1,retryAt:now+86400000,state:'succeeded',reserved:100,error:'',createdAt:time,updatedAt:time,attemptUsage:100}
+    historyDb.prepare('INSERT INTO jobs VALUES(?,?,?,?)').run(id,id,'global',JSON.stringify(job))
+  }
+  for(const [session,time] of [['old-session',now-1000],['new-session',now]])historyDb.prepare('INSERT INTO budget_ledger(session,settled,updatedAt) VALUES(?,?,?)').run(session,10,time)
+  const alert={id:'page-alarm',job:'new-extract',scope:'global',session:'new-session',kind:'extract',usage:101,threshold:50,time:now}
+  historyDb.exec('CREATE TABLE IF NOT EXISTS usage_alerts(id TEXT PRIMARY KEY,data TEXT NOT NULL)')
+  historyDb.prepare('INSERT INTO usage_alerts VALUES(?,?)').run(alert.id,JSON.stringify(alert))
+  const usageInsert=historyDb.prepare('INSERT INTO usage_attempts VALUES(?,?,?,?,?)'),{start:usageDayStart}=localUsageDay()
+  for(const [id,kind,usage,time] of [['extract-1','extract',300,now],['retry-1','extract',75,now],['consolidate-1','consolidate',25,now],['unknown-1','extract',null,now],['yesterday','extract',999,usageDayStart-1]])usageInsert.run(id,'global',kind,usage,time)
+  historyDb.close()
+  url=await start('127.0.0.1',18438);origin=new URL(url).origin;await open(page,url)
+  await page.getByText('高级设置与后台状态',{exact:true}).click()
+  await expect(page.locator('.dm-usage-stat')).toContainText('今日已使用400 token。')
+  await expect(page.getByText('另有 1 次调用未返回用量，未计入合计。',{exact:true})).toHaveCount(1)
+  await expect(page.getByText('单次后台用量超额报警',{exact:false})).toHaveCount(0)
+  assert.equal((await memory(page,origin,{action:'overview'})).dailyUsage.tokens,400)
+  const liveDb=new DatabaseSync(join(legacyRoot,'state.sqlite'));liveDb.prepare('INSERT INTO usage_attempts VALUES(?,?,?,?,?)').run('live-update','global','extract',17,Date.now());liveDb.close()
+  await expect(page.locator('.dm-usage-stat')).toContainText('今日已使用417 token。',{timeout:15000})
+await expect(providerSelect).toHaveValue('other-fixture');await expect(modelSelect).toHaveValue('other-fixed')
+  await expect(page.locator('.dm-evidence small')).toHaveCount(1);await expect(page.locator('.dm-evidence')).toContainText('new-session')
+  await expect(page.locator('.dm-jobs li')).toHaveCount(1);await expect(page.locator('.dm-jobs li')).toContainText('extract')
+  await page.getByRole('button',{name:'展开会话计量历史',exact:true}).click();await expect(page.locator('.dm-evidence small')).toHaveCount(2)
+  await page.getByRole('button',{name:'展开后台任务历史',exact:true}).click();await expect(page.locator('.dm-jobs li')).toHaveCount(3)
+  await page.getByRole('button',{name:'收起历史',exact:true}).first().click();await page.getByRole('button',{name:'收起历史',exact:true}).click()
+  await expect(page.locator('.dm-evidence small')).toHaveCount(1);await expect(page.locator('.dm-jobs li')).toHaveCount(1)
+  const routeBox=await page.locator('.dm-route-line .dm-save-action').boundingBox();assert(routeBox);assert.equal(routeBox.height,36)
+  const singleLine=await page.locator('.dm-setting-line').evaluateAll(rows=>rows.map(row=>{
+    const bounds=row.getBoundingClientRect(),controls=[...row.querySelectorAll('label > span,select,input,button')].map(el=>{const b=el.getBoundingClientRect();return {center:b.y+b.height/2,left:b.left,right:b.right}});
+    return {height:bounds.height,inline:controls.every(c=>Math.abs(c.center-(bounds.y+bounds.height/2))<1),contained:controls.every(c=>c.left>=bounds.left-1&&c.right<=bounds.right+1)}
+  }));assert.equal(singleLine.length,1);for(const row of singleLine){assert.equal(row.height,36);assert(row.inline);assert(row.contained)}
+  const alignedEdges=await page.locator('.dm-setting-line,.dm-row,.dm-fields').evaluateAll(rows=>rows.map(row=>{
+    const elements=row.matches('.dm-setting-line')?[...row.querySelectorAll('select,input,button')]:[...row.querySelectorAll(':scope > button')];
+    const boxes=elements.map(el=>{const b=el.getBoundingClientRect();return {top:b.top,bottom:b.bottom,height:b.height}});
+    return boxes.length>1?{count:boxes.length,aligned:boxes.every(b=>Math.abs(b.top-boxes[0].top)<1&&Math.abs(b.bottom-boxes[0].bottom)<1),height:boxes[0].height}:null
+  }).filter(Boolean));assert(alignedEdges.length>=3);for(const row of alignedEdges){assert(row.aligned);assert.equal(row.height,36)}
+  const typography=await page.locator('.dm-page').evaluate(element=>({fontFamily:getComputedStyle(element).fontFamily,fontSize:getComputedStyle(element).fontSize,lineHeight:getComputedStyle(element).lineHeight})),navTypography=await page.getByRole('button',{name:'记忆',exact:true}).evaluate(element=>({fontFamily:getComputedStyle(element).fontFamily,fontSize:getComputedStyle(element).fontSize}))
+  assert.equal(typography.fontSize,'14px');assert.equal(typography.lineHeight,'22px');assert.equal(typography.fontFamily,navTypography.fontFamily);assert.equal(typography.fontSize,navTypography.fontSize)
+  await page.locator('.dm-route-line').scrollIntoViewIfNeeded();await page.screenshot({path:'evidence/web-settings-0.2.0.png',fullPage:true})
+  assert.deepEqual(errors,[])
+  result.push({name:'0.2.0 daily token usage replaces alarms',status:'PASS',hostCatalog:true,providerModelCascade:true,routeSaveAndRestart:true,alarmsRemoved:true,dailyUsage:417,dailyUnknownCalls:1,dailyRestartPersistence:true,dailyLiveUpdate:true,legacyAlarmIgnored:true,iconsRemoved:true,sameRowButtonsAligned:true,alignedEdges,singleLine,controlHeight:36,bodyTypography:'14px/22px',fontMatchesSettings:true,latestSessionDefault:true,latestExtractDefault:true,historyExpandable:true,creditAndDailyUiRemoved:true,fixture:'synthetic catalogs and historical usage; no real provider call'})
   await stop();await writeFile(patch,profilePatch)
   await writeFile('evidence/package-lifecycle.json',JSON.stringify({status:'PASS',home,profile,hostVersion:manifest.dsh.engines.dsh,package:packagePath,version:manifest.version,upgradedFrom:previousPackage??null,uninstallRemovesPage:true,retainsSQLite:true,reinstallReadsSameData:true},null,2))
   await writeFile('evidence/web-acceptance.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2))

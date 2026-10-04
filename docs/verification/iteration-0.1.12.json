@@ -1,0 +1,124 @@
+{
+  "date": "2026-10-04",
+  "version": "0.1.12",
+  "hostVersion": "0.2.0-rc.2",
+  "status": "PASS",
+  "scope": "single-line settings layout; isolated Windows Host and loopback Web",
+  "changes": {
+    "routeRow": [
+      "供应商",
+      "供应商选择框",
+      "模型",
+      "模型选择框",
+      "保存"
+    ],
+    "alarmRow": [
+      "报警阈值",
+      "数值输入",
+      "tokens",
+      "保存报警阈值"
+    ],
+    "sharedSaveColumn": 132,
+    "controlHeight": 36,
+    "bodyTypography": "14px/22px",
+    "fullAccessibleAlarmLabel": true
+  },
+  "checks": {
+    "build": "PASS",
+    "typecheck": "PASS",
+    "nativeHost": "PASS (FIXTURE model)",
+    "web": [
+      {
+        "name": "A1/A3 actual loopback Web",
+        "status": "PASS",
+        "sourceDetails": true,
+        "conflictPreservesDraft": true,
+        "manualSave": true,
+        "pageFileBrowser": true,
+        "export": true,
+        "doubleSwitch": true,
+        "clearScopeIsolation": true
+      },
+      {
+        "name": "non-loopback actual Web",
+        "status": "BLOCKED",
+        "reason": "Harness CLI refuses non-loopback binding for safety; no override attempted"
+      },
+      {
+        "name": "0.1.12 single-line route and alarm settings",
+        "status": "PASS",
+        "hostCatalog": true,
+        "providerModelCascade": true,
+        "routeSaveAndRestart": true,
+        "alarmDefault": 10000,
+        "alarmValidation": true,
+        "alarmSaveAndRestart": true,
+        "pageAlarm": true,
+        "iconsRemoved": true,
+        "saveButtonsAligned": true,
+        "singleLine": [
+          {
+            "height": 36,
+            "inline": true,
+            "contained": true
+          },
+          {
+            "height": 36,
+            "inline": true,
+            "contained": true
+          }
+        ],
+        "controlHeight": 36,
+        "bodyTypography": "14px/22px",
+        "fontMatchesSettings": true,
+        "latestSessionDefault": true,
+        "latestExtractDefault": true,
+        "historyExpandable": true,
+        "creditAndDailyUiRemoved": true,
+        "fixture": "synthetic catalogs and historical usage; no real provider call"
+      }
+    ],
+    "visualInspection": "PASS (actual isolated Web screenshot)",
+    "finalPackage": {
+      "status": "PASS",
+      "hostVersion": "0.2.0-rc.2",
+      "environment": "isolated loopback Web",
+      "version": "0.1.12",
+      "sha256": "12331c4f1ac5af5e9532c8c220266bbeab8fb0bc6d261e9b425487434eb9b490",
+      "fileCount": 31,
+      "builtFilesIdenticalToAcceptedCandidate": 24,
+      "allInstalledFilesMatchFinalPackage": true,
+      "actualSettingsPage": true,
+      "actualRemote200": true,
+      "actualAlarmDefault": 10000,
+      "realModel": "NOT_RUN",
+      "desktop": "NOT_RUN",
+      "realRemote": "BLOCKED"
+    }
+  },
+  "repairHistory": [
+    {
+      "check": "first Web geometry measurement",
+      "status": "FAILED",
+      "observedRowHeight": 42,
+      "expectedRowHeight": 36,
+      "cause": "generic input margin had higher selector specificity",
+      "repair": "inline control selector overrides generic input margin",
+      "recheck": "PASS; original height and alignment assertions preserved"
+    }
+  ],
+  "notRun": [
+    "actual Desktop UI and user restart",
+    "real provider model calls",
+    "cross-machine remote / WAN"
+  ],
+  "externalChanges": {
+    "desktopInstalled": false,
+    "desktopRestarted": false,
+    "gitCommit": false,
+    "gitPush": false,
+    "release": false
+  },
+  "evidenceNotes": "Actual installed plugin UI geometry and configuration save are verified. Provider catalogs and historical usage are fixtures.",
+  "operatorRestart": "User will restart later; running Desktop not changed."
+}
