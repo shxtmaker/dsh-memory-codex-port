@@ -1,0 +1,84 @@
+{
+  "version": "0.1.9",
+  "date": "2026-10-04",
+  "environment": "user-operated isolated Windows Desktop, Host 0.2.0-rc.2; real configured provider/model",
+  "evidenceSources": [
+    "user-pasted fresh-session response",
+    "user screenshot of memory details and sources",
+    "read-only installed manifest, process start times, SQLite jobs/items/ledgers/index"
+  ],
+  "installation": {
+    "version": "0.1.9",
+    "completeRestart": "PASS",
+    "sameIsolatedHomeAndProfile": true
+  },
+  "realBackground": {
+    "extract": {
+      "status": "PASS",
+      "state": "succeeded",
+      "attempts": 1,
+      "finish": "stop",
+      "actualUsage": 500
+    },
+    "consolidate": {
+      "status": "PASS",
+      "state": "succeeded",
+      "attempts": 1,
+      "finish": "stop",
+      "actualUsage": 1555
+    },
+    "newPaidUsage": 2055
+  },
+  "record": {
+    "automatic": true,
+    "manual": false,
+    "revision": 1,
+    "status": "suggested",
+    "sourceCount": 1,
+    "syntheticAcceptanceMarker": "MEM-A-019",
+    "meansDirectoryAlreadyExists": false
+  },
+  "freshSession": {
+    "status": "PASS",
+    "settledDirectEvidence": 824,
+    "reservedDirectEvidence": 0,
+    "limit": 1024,
+    "targetRevisionInUsageLedger": true,
+    "userResponseQuotesConvention": true
+  },
+  "page": {
+    "list": "PASS (screenshot)",
+    "details": "PASS (screenshot)",
+    "sources": "PASS (screenshot)",
+    "markdownFileList": "PASS (screenshot)",
+    "fileContentBrowse": "NOT_RUN"
+  },
+  "repeatSearch": {
+    "readOnlyProductionIndexAudit": "PASS: all three supplied queries match target item",
+    "targetRevisionAlreadyProvided": true,
+    "inference": "empty tool output is consistent with per-session deduplication; not evidence of absent stored memory",
+    "actualToolResponseTrace": "NOT_CAPTURED"
+  },
+  "budget": {
+    "dayUsed": 10765,
+    "credit": 9809.68,
+    "paused": false,
+    "earlierFailuresAndFeesRetained": true
+  },
+  "remaining": {
+    "postGenerationRestartRead": "NOT_RUN",
+    "realProjectA_BIsolation": "NOT_RUN",
+    "realGlobalSharing": "NOT_RUN",
+    "fullDesktopManagement": "NOT_RUN",
+    "realRemote": "BLOCKED",
+    "overall": "pending acceptance"
+  },
+  "agentActions": {
+    "credentialsRead": false,
+    "realModelCalled": false,
+    "userDatabaseOrProfileModified": false,
+    "userCreditChanged": false,
+    "packageChanged": false,
+    "publicationTarget": "Gitea only"
+  }
+}
