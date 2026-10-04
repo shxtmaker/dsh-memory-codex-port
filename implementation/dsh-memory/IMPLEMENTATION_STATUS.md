@@ -97,3 +97,11 @@ DONE限定于下列实测范围，不能替代BLOCKED环境验收。
 - 版本0.1.8：build、typecheck、九项必要测试、test:host及实际候选包Web均通过。最终分发核查记录见 `docs/verification/distribution-0.1.8.json`。
 - 未读取凭证、安装用户实例、追加用户额度或由代理触发真实模型；用户0.1.7真实失败仍为FAIL。0.1.8升级、真实提炼/整理及完整Desktop管理交互NOT_RUN，真实远程环境BLOCKED。
 - 下一步：交付0.1.8源码及安装包，仅上传Gitea；用户同一隔离配置档升级、完整重启，用一条新短样本受控重验。已有失败任务不重置尝试次数，不扫描历史。
+
+## 2026-10-04 0.1.8安装后尚未重启的样本
+
+- 0.1.8源码包和安装包已上传Gitea，commit为115b3a9；远端main、tgz及source.zip的哈希核对PASS，GitHub未更新。
+- 用户新截图再次出现extract等待重试、MODEL_OUTPUT_TRUNCATED及max-tokens。只读核查新任务attempts=1、实际usage=1369、credit=6111.47、今日已用5574、paused=0；旧失败记录保留。
+- 磁盘manifest为0.1.8且包含off选择代码，插件文件修改时间为本地12:19。当前Desktop/Host仍是本地11:10启动的同一进程，早于本次升级；不能把磁盘版本当作修订代码运行证据，也不能把该样本归为0.1.8修订策略已验证失败。
+- 立即建议用户关闭项目自动生成以阻止待执行重试，随后完全退出并以同一隔离home、desktop profile和Electron user-data-dir重启；不需要再次安装或补充额度。
+- 尚未由代理修改用户配置、取消任务、重置attempts、追加额度或触发真实模型。用户关闭开关、完整重启后的新Host进程与真实0.1.8闭环仍NOT_RUN。
