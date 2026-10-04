@@ -35,7 +35,7 @@ DONE限定于下列实测范围，不能替代BLOCKED环境验收。
 | T19 | P4 | DONE | epoch确认清空、页内浏览、导出/复制；系统目录打开NOT_RUN |
 | T20 | P4 | DONE | 当前代文件数/时间、分来源额度、手动补充、每日上限、状态、安全错误诊断、权限、连接刷新 |
 | T21 | P5 | DONE | 防重生、未知usage暂停、路径/junction拒绝、存储故障前台放行 |
-| T22 | P5 | BLOCKED | 构建/类型、固定模型、实际Web和真实Desktop提炼/整理/重启读取/A-B隔离/全局共享已通过；剩余Desktop管理NOT_RUN，真实非loopback Host BLOCKED |
+| T22 | P5 | BLOCKED | 构建/类型、固定模型、实际Web和真实Desktop提炼/整理/重启读取/A-B隔离/全局共享及页内文件正文浏览已通过；剩余Desktop管理NOT_RUN，真实非loopback Host BLOCKED |
 | T23 | P5 | DONE | 完整源码/锁文件/构建、本地tgz和源码zip、README、验收与SHA-256；0.1.9仅上传并核验Gitea，GitHub保留0.1.7 |
 
 ## 已执行检查
@@ -47,7 +47,7 @@ DONE限定于下列实测范围，不能替代BLOCKED环境验收。
 
 ## 阻塞与下一步
 
-0.1.9真实提炼、整理、新会话召回、重启读取、A/B隔离、全局共享，以及页面条目/详情/来源/人工保存修改已通过。两级自动生成已关闭。全局使用关闭后不召回且数据库条目保留已通过。还需真实Desktop文件内容浏览、项目使用关闭、删除与清空等管理验收。固定模型A1–A5证据继续有效；真实非loopback Host仍BLOCKED。下一步由用户操作隔离实例；代理不改写实际配置、记忆或账本。
+0.1.9真实提炼、整理、新会话召回、重启读取、A/B隔离、全局共享，以及页面条目/详情/来源/人工保存修改已通过。两级自动生成已关闭。全局使用关闭后不召回且数据库条目保留已通过。真实Desktop页面内MEMORY.md正文浏览已通过。还需项目使用关闭、删除与清空等管理验收。固定模型A1–A5证据继续有效；真实非loopback Host仍BLOCKED。下一步由用户操作隔离实例；代理不改写实际配置、记忆或账本。
 
 ## 2026-10-04 来源访问修复
 
@@ -159,3 +159,11 @@ DONE限定于下列实测范围，不能替代BLOCKED环境验收。
 - 只读配置确认globalUse=false、globalGenerate=false、projectUse=true、projectGenerate=false；原global人工条目仍为相同id@2、status=observed、manual/pinned=true，创建及更新时间均未变。关闭使用没有删除条目。
 - 最新独立会话的直接证据reserved=0、settled=0，memory_usage没有该会话记录；结合先前启用全局使用的正向召回，本项PASS。未捕获逐次工具响应轨迹，不把模型所述每个查询都作为独立实测。
 - 文件内容浏览尚无对应用户结果，仍NOT_RUN；项目使用关闭、删除与清空也待验证。代理没有读取凭证、修改实际配置/数据库、触发真实模型或重新打包。验收文档仅上传Gitea。
+
+## 2026-10-04 0.1.9真实Desktop页面内文件正文浏览通过
+
+- 用户截图显示全局记忆浏览窗口中的Markdown正文，包含全局验收偏好、回答先给结论、MEM-G-019、observed、人工保存及revision2；不只是文件名称列表。
+- 只读核查globalUse=false、两级generate=false。截图中的快照代目录与SQLite当前global快照一致，MEMORY.md存在于快照允许列表；实际137字节正文的标题、偏好、标识、来源、revision和状态均核查通过，文件SHA-256为e6f7e7f438b11d8c2d763c6d6810840804ae9d5d990dd110d81ad4ab401017f5。
+- A1真实Desktop页面内文件内容浏览PASS，并补充关闭使用仍可在页面浏览持久数据的证据。此项不代表系统文件管理器、复制路径或导出操作已经在真实Desktop执行。
+- 下一步由用户保持全局使用关闭及两级生成关闭，关闭项目使用后在project-A新会话验证不召回；随后仅在隔离测试范围验证删除和清空。整体仍待完成验收，真实非loopback环境仍BLOCKED。
+- 本次仅只读核查及验收文档更新；未读取凭证、修改用户配置/数据库、追加credit、触发真实模型或重打包。文档只上传Gitea。

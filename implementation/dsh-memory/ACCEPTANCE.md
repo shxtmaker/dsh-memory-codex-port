@@ -1,6 +1,6 @@
 # 验收记录
 
-结论：**待完成验收**。当前版本为 0.1.9。整理协议使用合法 JSON 示例，新增省略 id/revision，更新与撤销保留旧记录的整数 revision。0.1.9 用户真实提炼、整理、新会话召回和页面详情已通过。正常重启后读取也已通过；真实项目A/B隔离、全局共享及人工保存与修改也已通过；全局使用关闭后不召回且数据保留已通过；文件内容浏览、项目使用关闭及删除清空等管理操作仍待验收；旧版本失败记录保留。固定模型或 Web 不能替代真实 Desktop 闭环。
+结论：**待完成验收**。当前版本为 0.1.9。整理协议使用合法 JSON 示例，新增省略 id/revision，更新与撤销保留旧记录的整数 revision。0.1.9 用户真实提炼、整理、新会话召回和页面详情已通过。正常重启后读取也已通过；真实项目A/B隔离、全局共享及人工保存与修改也已通过；全局使用关闭后不召回且数据保留已通过；Desktop页面内MEMORY.md正文浏览已通过；项目使用关闭及删除清空等管理操作仍待验收；旧版本失败记录保留。固定模型或 Web 不能替代真实 Desktop 闭环。
 
 ## 实际环境
 
@@ -22,7 +22,8 @@
 | A1 Desktop 0.1.7 运行接口更新 | PASS，用户操作及只读核查 | 保留未重启时的request边界失败；用户完整重启后Host进程已更换，同一隔离home中人工补充成功 |
 | A1 Desktop 0.1.9 升级、列表、详情与来源 | PASS，用户截图及只读核查 | 磁盘0.1.9，Host于本地15:40完整重启；自动条目、revision1、来源及Markdown文件列表可见，不代表全部管理操作通过 |
 | A1 Desktop 0.1.9 人工保存与修改 | PASS，用户操作结果及只读核查 | 全局manual/pinned条目持久化为revision2、status=observed，并有两次save审计记录；A/B新会话均使用相同id@2 |
-| A1 Desktop 0.1.9 文件内容浏览与清空 | NOT_RUN | Markdown文件列表已确认，真实Desktop文件内容展示与清空尚未获得完整结果记录 |
+| A1 Desktop 0.1.9 页面内文件内容浏览 | PASS，用户截图及只读文件核查 | 全局MEMORY.md正文显示偏好、MEM-G-019、observed、人工来源及revision2；截图代目录与当前SQLite快照一致，137字节文件对应内容核查通过；globalUse仍false |
+| A1 Desktop 0.1.9 清空 | NOT_RUN | 真实Desktop清空及结果尚未获得完整操作记录 |
 | A1 Desktop 0.1.8 磁盘安装与重启 | PASS，用户操作及只读核查 | 已安装0.1.8，Host于本地12:36完整重启，晚于12:19插件文件更新；同一隔离home/profile |
 | A1 实际非 loopback Host | BLOCKED | CLI 明确拒绝 0.0.0.0 监听，未覆盖安全条件 |
 | A2 原生日志闭环 | PASS，固定模型 | 实际 AgentLoop、持久日志、提炼、整理、新会话命中、重启、中文/代码检索、A/B 与全局隔离 |
@@ -46,10 +47,10 @@
 | A5 故障与生命周期 | PASS | 格式失败、取消、存储故障前台放行、未来schema/身份拒绝、快照重建、路径/junction拒绝、Worker退出 |
 | A5 同 home 卸载/重装 | PASS | 页面卸载移除；数据库保留；重装读取同一数据 |
 | A1/A5 运行中升级与重启 | PASS，实际隔离Web | 实际pluginManager从0.1.6升级0.1.7返回restart-required；重启前新动作复现相同边界错误，完整重启后相同请求成功；旧账本不自动补满 |
-| 系统文件管理器 | NOT_RUN | 使用已通过的页内浏览/复制路径/导出降级 |
+| 系统文件管理器 | NOT_RUN | 实际Desktop页面内MEMORY.md浏览已通过，可作为Host能力降级；复制路径及导出仅有既有隔离Web操作证据 |
 | WAN / 真实远程 Desktop | NOT_RUN | 未建立对应实际环境 |
 
-公开证据见 [docs/verification](../../docs/verification)。`evidence/verified-0.1.4.json` 为历史0.1.5与0.1.4的一致性记录，不适用于后续版本。0.1.6来源依赖修复见 `source-access-0.1.6.json`；0.1.7额度及诊断见 `budget-diagnostics-0.1.7.json`；0.1.8请求策略修复见 `background-routing-0.1.8.json`；0.1.9整理协议见 `consolidation-contract-0.1.9.json`，最终包见 `distribution-0.1.9.json`。原生日志、用户配置及模型正文不公开。0.1.9用户真实主链路及页内详情新增证据见 `manual-real-chain-0.1.9.json`；生成后正常重启见 `manual-restart-0.1.9.json`；真实项目A/B隔离见 `manual-isolation-0.1.9.json`；真实全局共享及人工保存修改见 `manual-global-sharing-0.1.9.json`；全局使用关闭且数据保留见 `manual-global-disable-0.1.9.json`；分发包及源码包维持原哈希，包内文档为打包时的验收状态。
+公开证据见 [docs/verification](../../docs/verification)。`evidence/verified-0.1.4.json` 为历史0.1.5与0.1.4的一致性记录，不适用于后续版本。0.1.6来源依赖修复见 `source-access-0.1.6.json`；0.1.7额度及诊断见 `budget-diagnostics-0.1.7.json`；0.1.8请求策略修复见 `background-routing-0.1.8.json`；0.1.9整理协议见 `consolidation-contract-0.1.9.json`，最终包见 `distribution-0.1.9.json`。原生日志、用户配置及模型正文不公开。0.1.9用户真实主链路及页内详情新增证据见 `manual-real-chain-0.1.9.json`；生成后正常重启见 `manual-restart-0.1.9.json`；真实项目A/B隔离见 `manual-isolation-0.1.9.json`；真实全局共享及人工保存修改见 `manual-global-sharing-0.1.9.json`；全局使用关闭且数据保留见 `manual-global-disable-0.1.9.json`；Desktop页面内文件正文浏览见 `manual-file-browse-0.1.9.json`；分发包及源码包维持原哈希，包内文档为打包时的验收状态。
 
 ## 计量边界
 
@@ -59,7 +60,7 @@
 
 ## 待完成验收
 
-1. 0.1.9安装、完整重启、列表/详情/来源、人工保存与修改已确认；全局使用关闭后不召回且数据库条目保留已确认；完成真实Desktop的文件内容浏览、项目使用关闭、删除与清空等剩余操作。仅在隔离测试范围操作。
+1. 0.1.9安装、完整重启、列表/详情/来源、人工保存与修改已确认；全局使用关闭后不召回且数据库条目保留已确认；页面内MEMORY.md正文浏览已确认；完成真实Desktop的项目使用关闭、删除与清空等剩余操作。仅在隔离测试范围操作。
 2. 0.1.9真实提炼、整理、新会话召回、项目A/B隔离、全局共享和正常重启后读取已通过，无需再产生同类后台调用。两级自动生成保持关闭；关闭使用的验证必须使用新会话，避免旧会话历史干扰。旧失败记录、人工更正和账本保留。
 3. Host正式允许授权非loopback连接后，验证真实远程当前项目和只读行为。
 
