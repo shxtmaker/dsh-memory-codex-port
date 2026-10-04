@@ -1,0 +1,20 @@
+{
+  "version": "0.2.1",
+  "tag": "V0.2.1",
+  "hostVersion": "0.2.0-rc.2",
+  "change": "release version correction from 2.0.1 to 0.2.1",
+  "productionSourceChanged": false,
+  "dependencyVersionsChanged": false,
+  "build": "PASS",
+  "bundleEntryVersionConsistency": "PASS",
+  "reusedFunctionalTests": {"from": "V2.0.1", "passed": 16},
+  "reusedTypecheck": "V2.0.1 PASS",
+  "finalTarballInstallation": "PASS",
+  "installedRuntimeAndReadmeMatch": true,
+  "actualLoopbackWebSettings": "PASS",
+  "actualMemoryRpcStatus": 200,
+  "installedDesktop": "NOT_RUN",
+  "realModel": "NOT_RUN",
+  "crossMachineRemote": "NOT_RUN",
+  "publicationVerification": "recorded separately after upload"
+}
