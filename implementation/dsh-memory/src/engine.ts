@@ -27,6 +27,9 @@ export interface EngineOptions {
   consent: () => boolean; route: () => ModelRoute | Promise<ModelRoute>
   idleMs: () => number; intervalMs: () => number; outputLimit: () => number
   foregroundBusy: () => boolean
+  /** 单批整理的最多变化来源数与输入 UTF-8 字节上限；省略时使用首版默认值。 */
+  consolidateBatchSources?: () => number
+  consolidateBatchBytes?: () => number
   routeAllowed?: (route:ModelRoute) => boolean
   readSource: (source: Source, signal: AbortSignal) => Promise<string>
   model: (prompt: string, maxOutput: number, signal: AbortSignal, route:ModelRoute) => Promise<ModelReply>
@@ -48,6 +51,8 @@ export class MemoryEngine {
   private stopped = false
   private attempts = new Map<string,number>()
   lastError = ''
+  /** 最近一批整理的边界诊断；用于页面显示“待处理来源顺延”而不是静默截断。 */
+  lastBatch?: { scope: string; pending: number; bytes: number; sources: number }
   readonly staticCost = { policyBytes: tokens(POLICY), toolSchemaBytes: tokens(JSON.stringify(MEMORY_TOOL)) }
   constructor(readonly storage: StorageWorker, private options: EngineOptions) {}
   async capture(source: Source): Promise<unknown> { return this.storage.call('capture',{source,idleMs:this.options.idleMs()}) }
@@ -91,7 +96,7 @@ export class MemoryEngine {
     const jobs=await this.storage.call<Job[]>('pending',{},signal)
     for(const job of jobs){
       if(signal.aborted||this.options.foregroundBusy())return
-      let prompt='',source:Source|undefined,inputHash='',unchanged=false,sourceEvents:{seq:number;role:string;text:string}[]=[]
+      let prompt='',source:Source|undefined,inputHash='',batchHash='',unchanged=false,sourceEvents:{seq:number;role:string;text:string}[]=[]
       try {
         if(job.kind==='extract'){
           const sources=await this.storage.call<Source[]>('sources',{scope:job.scope},signal)
@@ -101,10 +106,12 @@ export class MemoryEngine {
           sourceEvents=JSON.parse(text) as typeof sourceEvents
           prompt=EXTRACT_PROMPT+'\n来源范围：'+JSON.stringify({session:source.sessionId,project:source.project,sourceTime:source.updatedAt,startSeq:source.start,endSeq:source.end})+'\n'+text
         }else{
-          const input=await this.storage.call<{hash:string;unchanged:boolean;inputs:{output:{items:unknown[]}}[];removed:string[];items:MemoryItem[]}>('consolidationInput',{scope:job.scope},signal)
-          inputHash=input.hash;unchanged=input.unchanged
+          // 批次由来源数与 UTF-8 字节双上限界定；未纳入本批的变化顺延到下一批。
+          const input=await this.storage.call<{hash:string;batchHash:string;unchanged:boolean;pending:number;bytes:number;inputs:{source:string;output:{items:unknown[]}}[];removed:string[];items:MemoryItem[]}>('consolidationInput',{scope:job.scope,maxSources:(this.options.consolidateBatchSources?.()??8),maxBytes:(this.options.consolidateBatchBytes?.()??24576)},signal)
+          inputHash=input.hash;batchHash=input.batchHash;unchanged=input.unchanged
+          this.lastBatch={scope:job.scope,pending:input.pending,bytes:input.bytes,sources:input.inputs.length}
           // 无差异或空集合不需要模型调用。
-          if(unchanged||!input.inputs.some(row=>row.output.items.length)){await this.storage.call('completeNoop',{id:job.id,hash:inputHash},signal);continue}
+          if(unchanged||!input.inputs.some(row=>row.output.items.length)){await this.storage.call('completeNoop',{id:job.id,hash:inputHash,maxSources:(this.options.consolidateBatchSources?.()??8),maxBytes:(this.options.consolidateBatchBytes?.()??24576)},signal);continue}
           prompt=CONSOLIDATE_PROMPT+'\n'+JSON.stringify({scope:job.scope,inputs:input.inputs,removed:input.removed,items:input.items.filter(i=>!i.manual&&!i.pinned).slice(0,24)})
         }
         const outputLimit=this.options.outputLimit(),reserve=tokens(prompt)+outputLimit
@@ -129,7 +136,8 @@ export class MemoryEngine {
             await this.storage.call('commitExtraction',{id:job.id,fence:leased.fence,hash:source!.hash,output,intervalMs:this.options.intervalMs(),route,usage:reply.usage},modelSignal)
           }else{
             const output=proposalSchema.parse(parsed)
-            await this.storage.call('commitProposal',{id:job.id,fence:leased.fence,hash:inputHash,output},modelSignal)
+            // 提交必须对应同一批次：batchHash 不符即拒绝，避免用旧批次游标结算新变化。
+            await this.storage.call('commitProposal',{id:job.id,fence:leased.fence,hash:inputHash,batchHash,output,maxSources:(this.options.consolidateBatchSources?.()??8),maxBytes:(this.options.consolidateBatchBytes?.()??24576)},modelSignal)
           }
           await this.storage.call('settleJob',{id:job.id,fence:leased.fence,usage:reply.usage,modelFinish:reply.finish,state:job.kind==='extract'&&!extractionSchema.parse(parsed).items.length?'succeeded_no_output':'succeeded'})
         }catch(error){

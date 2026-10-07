@@ -5,7 +5,12 @@ import type { ManageRequest, MemoryItem, Project, Source, Job, DailyUsage, Conne
 import { copy as t } from './locales.ts'
 export interface PageOperations { form:ConfigForm<ConfigView>;call:(request:ManageRequest)=>Promise<unknown>;subscribe:(notify:()=>void)=>()=>void }
 interface Scope {id:string;epoch:number;use:boolean;generate:boolean;count:number;fileCount:number;updatedAt:number}
-interface Overview {root:string;profile:string;projects:Project[];scopes:Scope[];writable:boolean;route:{provider:string;model:string};consent:boolean;lastError:string;jobs:Job[];dailyUsage:DailyUsage;evidence:{session:string;settled:number;reserved:number;updatedAt:number}[];staticCost:{policyBytes:number;toolSchemaBytes:number}}
+interface Overview {root:string;profile:string;projects:Project[];scopes:Scope[];writable:boolean;route:{provider:string;model:string};consent:boolean;lastError:string;jobs:Job[];dailyUsage:DailyUsage;evidence:{session:string;settled:number;reserved:number;updatedAt:number}[];staticCost:{policyBytes:number;toolSchemaBytes:number}
+  /** 预算以 UTF-8 字节计量；估算 tokens 与供应商实际 usage 另行显示，不混为一谈。 */
+  budget?:{localEvidenceBytes:number;remoteEvidenceBytes:number;retiredReferenceBytes:number;maxTotalBytes:number}
+  knowledge?:{readEnabled:boolean;publishEnabled:boolean;requestDeadlineMs:number;maxKnowledgeCallsPerTurn:number;matchCount:number}
+  consolidationBatch?:{sources:number;bytes:number}
+  lastBatch?:{scope:string;pending:number;bytes:number;sources:number}|null}
 interface Choice {id:string;name:string}
 interface Detail extends MemoryItem {sourceDetails:Source[]}
 interface ConnectionView {connectionId:string;baseUrl:string;apiProfile:string;tenantId:string;readCredentialRef:string;publishCredentialRef:string;readEnabled:boolean;publishEnabled:boolean;configRevision:number;maxKnowledgeBases:number;requestDeadlineMs:number;remoteEvidenceBytes:number;retiredReferenceBytes:number;maxKnowledgeCallsPerTurn:number;publishMode:string;useCrossSessionRemoteCache:boolean}
@@ -123,7 +128,7 @@ export function MemorySettingsSection({operations:o}:{operations:PageOperations}
       <p className="dm-usage-stat">{t.usageHelp}{overview?<>{t.todayUsed}<strong>{overview.dailyUsage.tokens}</strong> token。</>:t.loadingUsage}</p>
       {!!overview?.dailyUsage.unknownCalls&&<p className="dm-muted">{t.unknownUsageCalls.replace('{count}',String(overview.dailyUsage.unknownCalls))}</p>}
       <p>{t.static}：{overview?.staticCost.policyBytes??0} + {overview?.staticCost.toolSchemaBytes??0} UTF-8 bytes</p>
-      <h4>{t.latestEvidence}</h4><div className="dm-evidence">{(showEvidence?evidence:evidence.slice(0,1)).map(e=><small key={e.session}>{e.session}：{e.settled+e.reserved} / 1024 tokens（保守计量）<br/></small>)}{!evidence.length&&<p>{t.noEvidence}</p>}</div>{evidence.length>1&&<button onClick={()=>setShowEvidence(!showEvidence)}>{showEvidence?t.collapseHistory:t.showEvidenceHistory}</button>}
+      <h4>{t.latestEvidence}</h4><div className="dm-evidence">{(showEvidence?evidence:evidence.slice(0,1)).map(e=><small key={e.session}>{e.session}：{e.settled+e.reserved} / {(overview?.budget?.localEvidenceBytes??1024)} 字节证据额度（本地直接证据，整会话累计；不是计费 tokens）<br/></small>)}{!evidence.length&&<p>{t.noEvidence}</p>}</div>{evidence.length>1&&<button onClick={()=>setShowEvidence(!showEvidence)}>{showEvidence?t.collapseHistory:t.showEvidenceHistory}</button>}
       <h4>{t.latestExtract}</h4><ul className="dm-jobs">{visibleJobs.map(j=><li key={j.id}>{j.kind} · {t[j.state as keyof typeof t]??j.state}{j.error&&` · ${j.error}`}{j.diagnostic&&` · ${j.diagnostic}`}{j.modelFinish&&` · ${t.modelFinish}：${j.modelFinish}`}{j.attemptUsage!==undefined&&` · ${t.attemptUsage}：${j.attemptUsage===null?t.usageUnknown:j.attemptUsage+' tokens'}`}</li>)}</ul>{!visibleJobs.length&&<p>{t.noExtract}</p>}{(showJobs||(overview?.jobs.length??0)>visibleJobs.length)&&<button onClick={()=>setShowJobs(!showJobs)}>{showJobs?t.collapseHistory:t.showJobHistory}</button>}{overview?.lastError&&<p role="status">{overview.lastError}</p>}
     </details>
     <div className="dm-kb">

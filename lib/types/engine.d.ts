@@ -19,6 +19,9 @@ export interface EngineOptions {
     intervalMs: () => number;
     outputLimit: () => number;
     foregroundBusy: () => boolean;
+    /** 单批整理的最多变化来源数与输入 UTF-8 字节上限；省略时使用首版默认值。 */
+    consolidateBatchSources?: () => number;
+    consolidateBatchBytes?: () => number;
     routeAllowed?: (route: ModelRoute) => boolean;
     readSource: (source: Source, signal: AbortSignal) => Promise<string>;
     model: (prompt: string, maxOutput: number, signal: AbortSignal, route: ModelRoute) => Promise<ModelReply>;
@@ -41,6 +44,13 @@ export declare class MemoryEngine {
     private stopped;
     private attempts;
     lastError: string;
+    /** 最近一批整理的边界诊断；用于页面显示“待处理来源顺延”而不是静默截断。 */
+    lastBatch?: {
+        scope: string;
+        pending: number;
+        bytes: number;
+        sources: number;
+    };
     readonly staticCost: {
         policyBytes: number;
         toolSchemaBytes: number;

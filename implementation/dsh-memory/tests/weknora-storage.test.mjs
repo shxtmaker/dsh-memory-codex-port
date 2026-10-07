@@ -106,6 +106,13 @@ test('P02 连接设置是单一权威存储，配置修订递增且凭据只存�
       connection: { connectionId: 'bad', baseUrl: 'file:///etc/passwd', readCredentialRef: 'r' },
     }), /INVALID_BASE_URL/)
 
+    // 回归：连接存在后 connections 必须能列出（曾因二次 JSON.parse 恒失败）。
+    const listed = await worker.call('connections', {})
+    assert.equal(listed.length, 1)
+    assert.equal(listed[0].connectionId, 'team-knowledge')
+    assert.equal(typeof listed[0].configRevision, 'number')
+    assert.equal(listed[0].maxKnowledgeBases, 2, '列表项必须同时带 settings 投影')
+
     const toggled = await worker.call('toggleConnection', { connectionId: 'team-knowledge', readEnabled: true })
     assert.equal(toggled.readEnabled, true)
     assert.equal(toggled.publishEnabled, false, '两个开关互相独立')
@@ -140,6 +147,11 @@ test('P02 项目绑定限制库数量，发布库必须同时可读', async () =
     // 超过两个只读库被拒绝。
     await assert.rejects(worker.call('setBinding', { projectId: project.id, binding: { connectionId: 'team-knowledge', readKbIds: ['a', 'b', 'c'] } }), /KB_LIMIT_EXCEEDED/)
     const binding = await worker.call('setBinding', { projectId: project.id, binding: { connectionId: 'team-knowledge', readKbIds: ['kb-docs', 'kb-pub'], publishKbId: 'kb-pub' } })
+    // 回归：绑定存在后 bindings 必须可读（曾因按 data 列读取而恒失败）。
+    const bindings = await worker.call('bindings', {})
+    assert.equal(bindings.length, 1)
+    assert.equal(bindings[0].publishKbId, 'kb-pub')
+    assert.deepEqual(bindings[0].readKbIds, ['kb-docs', 'kb-pub'])
     assert.equal(binding.bindingRevision, 1)
     assert.deepEqual(binding.readKbIds, ['kb-docs', 'kb-pub'])
     const again = await worker.call('setBinding', { projectId: project.id, binding: { connectionId: 'team-knowledge', readKbIds: ['kb-docs'], publishKbId: '' } })

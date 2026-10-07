@@ -18,6 +18,11 @@ export const copy={
   noProjects:'项目会在新会话使用工作目录后出现。',updated:'更新于',confirmClear:'确认清空',scope:'作用域',revision:'版本',status:'状态',
   local:'存储于当前执行主机',profile:'配置档',fileCount:'个可读文件',itemCount:'条有效记忆',
   evidence:'会话累计证据',static:'稳定策略与工具 schema 另计',
+  // 字节额度与估算/实际 token 必须分开表述，避免把保守字节计量当成计费 tokens。
+  budgetHelp:'证据额度按 UTF-8 字节计量：本地直接证据 1024 字节每会话累计，远端活动槽位单独计量，两者合计不超过 4096 字节。这不是计费 tokens。',
+  remoteSlot:'远端活动槽位',retiredRefs:'退役短引用',maxTotal:'直接证据合计上限',estimateNote:'界面显示的是字节占用；估算 tokens 与供应商实际 usage 单独统计，两者不可互换。',
+  consolidationBatchHelp:'整理输入按来源数与 UTF-8 字节双上限分批；未纳入本批的变化顺延到下一批，不会被标记为已完成。',
+  pendingSources:'待处理来源顺延',
   usageHelp:'每次提炼、整理和重试分别按供应商返回的总 tokens 计量。',todayUsed:'今日已使用',loadingUsage:'正在加载用量统计…',
   unknownUsageCalls:'另有 {count} 次调用未返回用量，未计入合计。',
   latestEvidence:'最新会话计量',latestExtract:'最新 extract 状态',showEvidenceHistory:'展开会话计量历史',showJobHistory:'展开后台任务历史',collapseHistory:'收起历史',

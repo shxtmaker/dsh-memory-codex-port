@@ -88,15 +88,51 @@ function selected(id: string): { id: string; source: string; hash: string; outpu
     return source && allowedSource(source,id)
   }).map(row => ({ id: String(row.id), source: String(row.source), hash: String(row.hash), output: JSON.parse(String(row.data)) }))
 }
-function consolidationInput(id:string) {
+/**
+ * 整理输入按批次裁剪。
+ *
+ * 关键不变式：**只推进本批次已处理来源的游标**。不能因为“已经调用了模型”就把
+ * 全部变化来源标记完成，否则被截断的那部分变化会永久遗漏。
+ * 批次由来源数与输入 UTF-8 字节双上限共同界定；待处理来源顺延到下一批。
+ */
+function consolidationInput(id:string,maxSources:number,maxBytes:number) {
   scope(id);const inputs=selected(id),current=items(id),inputHash=hash(inputs)
   const row=db.prepare('SELECT data FROM consolidation_baselines WHERE scope=?').get(id)
   const previous:Record<string,string>=row?JSON.parse(String(row.data)):{}
   const next=Object.fromEntries(inputs.map(i=>[i.source,hash(i)]))
-  const changed=inputs.filter(i=>previous[i.source]!==next[i.source]),removed=Object.keys(previous).filter(s=>!(s in next))
-  const touched=new Set([...changed.map(i=>i.source),...removed])
-  const concepts=changed.flatMap(i=>(i.output as z.infer<typeof extractionSchema>).items.map(f=>f.title))
-  return {hash:inputHash,unchanged:!changed.length&&!removed.length,inputs:changed,removed,items:current.filter(i=>i.sources.some(s=>touched.has(s))||concepts.includes(i.title)),next}
+  // 确定性顺序：按来源 id 排序，保证同一状态得到同一批次划分。
+  const changed=inputs.filter(i=>previous[i.source]!==next[i.source]).sort((a,b)=>a.source.localeCompare(b.source))
+  const removed=Object.keys(previous).filter(s=>!(s in next)).sort()
+  // 先按字节预算收集变化来源，再按数量上限截断。
+  const batch:{id:string;source:string;hash:string;output:unknown}[]=[];let bytes=0
+  for(const row of changed){
+    const size=Buffer.byteLength(JSON.stringify(row),'utf8')
+    if(batch.length>=maxSources)break
+    // 至少放一条，避免单条超过预算时永远无法推进。
+    if(batch.length&&bytes+size>maxBytes)break
+    batch.push(row);bytes+=size
+  }
+  // 全部变化来源都已进入本批时，才把已删除来源一并处理。
+  const allChangedCovered=batch.length===changed.length
+  const batchRemoved=allChangedCovered?removed:[]
+  const touched=new Set([...batch.map(i=>i.source),...batchRemoved])
+  const concepts=batch.flatMap(i=>(i.output as z.infer<typeof extractionSchema>).items.map(f=>f.title))
+  const batchHash=hash({inputs:batch.map(i=>({source:i.source,hash:i.hash})),removed:batchRemoved})
+  return {
+    hash:inputHash,batchHash,unchanged:!changed.length&&!removed.length,
+    inputs:batch,removed:batchRemoved,
+    items:current.filter(i=>i.sources.some(s=>touched.has(s))||concepts.includes(i.title)),
+    pending:changed.length-batch.length+(allChangedCovered?0:removed.length),
+    bytes,next,
+  }
+}
+/** 仅推进本批次已处理来源的游标；未进入批次的变化保持待处理。 */
+function advanceBaseline(scopeId:string,next:Record<string,string>,batchSources:string[],batchRemoved:string[]):void {
+  const row=db.prepare('SELECT data FROM consolidation_baselines WHERE scope=?').get(scopeId)
+  const baseline:Record<string,string>=row?JSON.parse(String(row.data)):{}
+  for(const source of batchSources)if(source in next)baseline[source]=next[source]
+  for(const source of batchRemoved)delete baseline[source]
+  db.prepare('INSERT INTO consolidation_baselines VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET data=excluded.data').run(scopeId,JSON.stringify(baseline))
 }
 function safeFile(file: string): string {
   if (isAbsolute(file) || file.split(/[\\/]/).includes('..')) throw new Error('PATH_DENIED')
@@ -371,20 +407,31 @@ function execute(op: string, input: unknown): unknown {
       }
       return true
     })
-    case 'consolidationInput': return consolidationInput(str('scope'))
+    case 'consolidationInput': return consolidationInput(str('scope'),
+      z.number().int().min(1).max(64).parse(a.maxSources??8),
+      z.number().int().min(4096).max(262144).parse(a.maxBytes??24576))
     case 'completeNoop': {
       const job=get<Job>('jobs',str('id'));if(!job||!['queued','waiting-credit','retry'].includes(job.state))return false
-      const input=consolidationInput(job.scope);if(input.hash!==str('hash'))throw new Error('SOURCE_CHANGED')
-      transaction(()=>{db.prepare('INSERT INTO consolidation_baselines VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET data=excluded.data').run(job.scope,JSON.stringify(input.next));storeJob({...job,state:'succeeded_no_output'});audit('job-noop',job.id)});materialize(job.scope,input.hash);return true
+      const input=consolidationInput(job.scope,8,24576);if(input.hash!==str('hash'))throw new Error('SOURCE_CHANGED')
+      transaction(()=>{
+        // 只推进本批次已处理来源；其余变化顺延到下一批，避免遗漏。
+        advanceBaseline(job.scope,input.next,input.inputs.map(row=>row.source),input.removed)
+        storeJob({...job,state:'succeeded_no_output'});audit('job-noop',job.id)
+      });materialize(job.scope,input.hash);return true
     }
     case 'commitProposal': {
       const job=get<Job & {epochs:Record<string,number>}>('jobs',str('id'));if(!job)throw new Error('NOT_FOUND')
       transaction(()=>{
         if(job.fence!==num('fence'))throw new Error('STALE_LEASE');fence(job)
         const inputs=selected(job.scope);if(hash(inputs)!==str('hash'))throw new Error('SOURCE_CHANGED')
+        // 批次由调用方在 lease 时确定；此处按同一规则重算以证明提交对应同一批。
+        const batch=consolidationInput(job.scope,z.number().int().min(1).max(64).parse(a.maxSources??8),z.number().int().min(4096).max(262144).parse(a.maxBytes??24576))
+        if(batch.batchHash!==str('batchHash'))throw new Error('BATCH_CHANGED')
+        const batchSources=batch.inputs.map(row=>row.source)
         const proposal=proposalSchema.parse(a.output)
         for(const change of proposal.changes){
-          if(change.sources.some(id=>!inputs.some(i=>i.source===id)))throw new Error('INVALID_SOURCE_REF')
+          // 只接受本批次来源，防止模型引用未纳入本批的证据。
+          if(change.sources.some(id=>!batchSources.includes(id)))throw new Error('INVALID_SOURCE_REF')
           const old=change.id?get<MemoryItem>('memory_items',change.id):undefined
           if(change.op==='add'&&items(job.scope).some(i=>i.title===change.title&&i.content===change.content))continue
           if(job.scope==='global'&&change.kind!=='preference')throw new Error('GLOBAL_SCOPE_VIOLATION')
@@ -396,7 +443,7 @@ function execute(op: string, input: unknown): unknown {
           const backed=facts.some(i=>i.content===change.content && i.title===change.title && i.status===change.status)
           const item:MemoryItem={id:old?.id??randomUUID(),scope:job.scope,title:redact(change.title),content:redact(change.content),kind:change.kind,status:change.op==='revoke'?'expired':backed?change.status:'suggested',pinned:false,manual:false,revision:(old?.revision??0)+1,createdAt:old?.createdAt??Date.now(),updatedAt:Date.now(),sources:change.sources};itemWrite(item)
         }
-        db.prepare('INSERT INTO consolidation_baselines VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET data=excluded.data').run(job.scope,JSON.stringify(Object.fromEntries(inputs.map(i=>[i.source,hash(i)]))))
+        advanceBaseline(job.scope,batch.next,batchSources,batch.removed)
         audit('consolidate',job.scope)
       });materialize(job.scope,str('hash'));return true
     }
@@ -433,7 +480,8 @@ function execute(op: string, input: unknown): unknown {
       for(const item of value.records)db.prepare('INSERT OR IGNORE INTO memory_usage VALUES(?,?,?,?,?)').run(value.session,value.epoch,item.id,item.revision,JSON.stringify({request:str('request'),time:Date.now(),scope:item.scope}));return true
     })
     /* ── 连接设置：单一权威存储 ─────────────────────────────────────── */
-    case 'connections': return all<{data:string;revision:number}>('weknora_connections').map(connectionView)
+    // all() 已解析 data；这里必须直接用带 revision 列的原始行，不能再交给 connectionView 二次解析。
+    case 'connections': return db.prepare('SELECT data,config_revision AS revision FROM weknora_connections').all().map(row=>connectionView(row as {data:string;revision:number}))
     case 'connection': return connectionById(connectionIdSchema.parse(a.connectionId))
     case 'saveConnection': return transaction(()=>{
       const input=z.object({
@@ -489,7 +537,8 @@ function execute(op: string, input: unknown): unknown {
     /* ── 项目绑定 ──────────────────────────────────────────────────── */
     case 'binding': {const id=str('projectId');const binding=bindingRow(id);if(!binding)throw new Error('BINDING_MISSING');return binding}
     case 'bindingOrNull': return bindingRow(str('projectId'))??null
-    case 'bindings': return all<ProjectBinding>('project_bindings')
+    // 绑定表按列存储（不是 data JSON 列），必须显式映射字段。
+    case 'bindings': return db.prepare('SELECT * FROM project_bindings').all().map(row=>({localProjectId:String(row.local_project_id),connectionId:String(row.connection_id),readKbIds:JSON.parse(String(row.read_kb_ids)) as string[],publishKbId:String(row.publish_kb_id),bindingRevision:Number(row.binding_revision),updatedAt:Number(row.updated_at)}))
     case 'setBinding': return transaction(()=>{
       const projectId=str('projectId');scope(projectId)
       // 先做结构校验，再给出可诊断的领域错误代码。

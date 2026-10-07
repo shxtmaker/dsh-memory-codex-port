@@ -172,6 +172,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     idleMs:()=>config.idleMinutes.get()*60000,intervalMs:()=>config.consolidationMinutes.get()*60000,
     outputLimit:()=>config.outputTokens.get(),
     foregroundBusy:()=>ctx.agents.list().some(agent=>agent.status==='running'),
+    // 整理输入有界：每批最多 N 个变化来源与 M 字节，未纳入的变化顺延。
+    consolidateBatchSources:()=>config.consolidateBatchSources.get(),
+    consolidateBatchBytes:()=>config.consolidateBatchBytes.get(),
     routeAllowed:route=>(!config.provider.get()&&!config.model.get())||(config.provider.get()===route.provider&&config.model.get()===route.model),
     readSource:async(source,signal)=>{
       const live=ctx.sessions.get(SessionId(source.sessionId))
@@ -388,7 +391,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     if(action==='overview'){
       const value=result as {projects:Project[];scopes:{id:string}[];jobs:{scope:string}[];evidence:{session:string}[];root:string}
       if(!isWritable()){value.projects=value.projects.filter(p=>scopes.includes(p.id));value.scopes=value.scopes.filter(s=>scopes.includes(s.id));value.jobs=value.jobs.filter(j=>scopes.includes(j.scope));value.evidence=value.evidence.filter(e=>e.session===request.sessionId);value.root=''}
-      result={...value,writable:isWritable(),revealStore:false,route:await resolveRoute(),consent:config.consent.get(),lastError:engine.lastError,staticCost:engine.staticCost,storageAvailable}
+      result={...value,writable:isWritable(),revealStore:false,route:await resolveRoute(),consent:config.consent.get(),lastError:engine.lastError,staticCost:engine.staticCost,storageAvailable,
+        // 整理批次边界与前台预算口径；页面据此显示实际字节占用而不是“tokens”。
+        lastBatch:engine.lastBatch??null,
+        budget:{localEvidenceBytes:1024,remoteEvidenceBytes:config.remoteEvidenceBytes.get(),retiredReferenceBytes:config.retiredReferenceBytes.get(),maxTotalBytes:1024+config.remoteEvidenceBytes.get()},
+        knowledge:{readEnabled:config.knowledgeRead.get(),publishEnabled:config.knowledgePublish.get(),requestDeadlineMs:config.requestDeadlineMs.get(),maxKnowledgeCallsPerTurn:config.maxKnowledgeCallsPerTurn.get(),matchCount:config.matchCount.get()},
+        consolidationBatch:{sources:config.consolidateBatchSources.get(),bytes:config.consolidateBatchBytes.get()}}
     }
     if(!isWritable()&&action==='read'&&!scopes.includes((result as MemoryItem).scope))throw new Error('SCOPE_DENIED')
     if(!isWritable()&&action==='job'&&result&&!scopes.includes((result as {scope:string}).scope))throw new Error('SCOPE_DENIED')
@@ -451,7 +459,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return decision
   })
   ctx.systemPrompt.section({name:'dsh-memory-policy',order:90,text:POLICY,interpolate:false})
-  ctx.tools.register({...MEMORY_TOOL,output:{schema:{type:'object',properties:{text:{type:'string'},evidence:{type:'object',additionalProperties:true}},required:['text'],additionalProperties:false},presentationMeta:(_args,value)=>{
+  // 输出 schema 必须声明 execute 实际返回的每个键：additionalProperties:false 下
+  // 漏声明 knowledgeEvidence 会让知识检索的返回值整体被严格校验拒绝。
+  ctx.tools.register({...MEMORY_TOOL,output:{schema:{type:'object',properties:{text:{type:'string'},evidence:{type:'object',additionalProperties:true},knowledgeEvidence:{type:'object',additionalProperties:true}},required:['text'],additionalProperties:false},presentationMeta:(_args,value)=>{
       const parsed=z.object({evidence:evidenceMetadata.optional(),knowledgeEvidence:knowledgeMetadata.optional()}).parse(value)
       // JsonValue 不接受 undefined：缺失的键必须整个省略。
       return {...(parsed.evidence?{memoryEvidence:parsed.evidence}:{memoryEvidence:{epochs:{},items:[]}}),...(parsed.knowledgeEvidence?{knowledgeEvidence:parsed.knowledgeEvidence}:{})}
@@ -460,7 +470,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     if(!exec.agent||exec.rootCallId!==exec.callId||excluded.has(exec.agent.id)||exec.agent.session.header.origin==='subagent')return {text:''}
     // 知识来源需要同时满足总开关与连接级读取开关；默认关闭。
     if(input.source==='knowledge'){
-      if(!config.knowledgeRead.get())return {text:'知识检索未开启。',knowledgeEvidence:undefined}
+      // 关闭时给出明确说明；不附加未声明的键。
+      if(!config.knowledgeRead.get())return {text:'知识检索未开启。请先在 设置 → 记忆 中配置连接、绑定知识库并开启读取。'}
       try {
         await policyReady
         const project=await projectFor(exec.agent.session)
@@ -468,10 +479,18 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         const reply=input.action==='read'
           ? await knowledge.read({sessionId:session,projectId:project.id,userTurn,toolCallId:exec.callId,createdSeq:Number(exec.agent.session.seq),knowledgeId:input.id??'',cursor:input.cursor??1,caller:exec.signal},knowledgeLimits())
           : await knowledge.search({sessionId:session,projectId:project.id,userTurn,toolCallId:exec.callId,createdSeq:Number(exec.agent.session.seq),query:input.query??'',caller:exec.signal},knowledgeLimits())
-        if(!reply.outcome.ok&&!reply.text)return {text:''}
-        toolSlots.set(exec.callId,{slotId:reply.slotId,generation:reply.slotId?1:0,refs:reply.refs})
-        return {text:reply.text,knowledgeEvidence:reply.slotId?{slotId:reply.slotId,generation:1,refs:reply.refs.map(ref=>({knowledgeId:ref.knowledgeId,chunkId:ref.chunkId,title:ref.title,bodyHash:ref.bodyHash}))}:undefined}
-      } catch { return {text:''} }
+        if(reply.slotId)toolSlots.set(exec.callId,{slotId:reply.slotId,generation:1,refs:reply.refs})
+        const payload:{text:string;knowledgeEvidence?:{slotId:string;generation:number;refs:{knowledgeId:string;chunkId:string;title:string;bodyHash:string}[]}}={
+          text:reply.text||`知识检索未返回可用结果（${reply.outcome.code}）。这是降级，不代表资料不存在。`,
+        }
+        // 只有真正提交了槽位才附带证据元数据；未提交时整个键省略。
+        if(reply.slotId)payload.knowledgeEvidence={slotId:reply.slotId,generation:1,refs:reply.refs.map(ref=>({knowledgeId:ref.knowledgeId,chunkId:ref.chunkId,title:ref.title,bodyHash:ref.bodyHash}))}
+        return payload
+      } catch(error){
+        // 不把失败伪装成空结果：给出可诊断的固定代码。
+        const code=error instanceof Error&&/^[A-Z_]+$/.test(error.message)?error.message:'UPSTREAM'
+        return {text:`知识检索不可用（${code}）。本地记忆不受影响。`}
+      }
     }
     try {await policyReady;const project=await projectFor(exec.agent.session);const evidence=await engine.retrieve(exec.agent.id,project.id,input.query??'',input.action==='read'?input.id:undefined,exec.signal);if(!evidence)return {text:''};toolPending.set(exec.callId,evidence);return {text:evidence.text,evidence:{epochs:evidence.epochs,items:evidence.records.map(i=>({id:i.id,revision:i.revision,scope:i.scope}))}}}catch{return {text:''}}
   }})
