@@ -4,6 +4,52 @@
 当前状态：**受阻（BLOCKED）** —— 未提供实例地址、隔离知识库与凭据引用。
 本机夹具（`tests/weknora-*.test.mjs`）只证明协议形状与状态机，**不代替**本文件的验收。
 
+## 已确认的环境（2026-10-08）
+
+| 项目 | 值 |
+|---|---|
+| WeKnora 地址 | `http://192.168.3.100:18080/api/v1` |
+| 可达性 | 已实测：`GET /health` 返回 200（nginx 前端）；`/api/v1/*` 全部返回 401，说明 API 前缀正确且服务正常 |
+| 只读/发布知识库 | `4f4ff687-7b56-4f6c-ad83-fd5aaa627731` |
+| T3 授权 | 允许在该库中创建、更新并删除**仅含合成内容**的测试文档；**不修改任何既有文档** |
+| API 密钥 | **未提供**（见下方阻塞） |
+
+**唯一阻塞**：缺少 API key。所有 `/api/v1/*` 请求都返回
+`{"error":"Unauthorized: missing authentication"}`。
+
+所需的凭据（推荐两个独立引用，符合方案的读取/发布能力分离）：
+
+| 变量 | 说明 |
+|---|---|
+| `WEKNORA_READ_KEY` | 具备 `retrieve` 能力的 key，allow-list 覆盖该知识库 |
+| `WEKNORA_PUBLISH_KEY` | 具备 `retrieve` + `ingest` 的 key，仅覆盖该发布库；缺省时回退到读取 key |
+| `WEKNORA_TENANT_ID` | 平台 API key 必填；租户 key 可省略 |
+
+密钥请放在宿主凭据层或以环境变量传入，**不要**写进提示词、仓库或本文件。
+
+## 一键执行
+
+```bash
+cd implementation/dsh-memory
+
+WEKNORA_BASE_URL=http://192.168.3.100:18080/api/v1 \
+WEKNORA_KB_ID=4f4ff687-7b56-4f6c-ad83-fd5aaa627731 \
+WEKNORA_PUBLISH_KB_ID=4f4ff687-7b56-4f6c-ad83-fd5aaa627731 \
+WEKNORA_READ_KEY=<读取凭据> \
+WEKNORA_PUBLISH_KEY=<发布凭据> \
+WEKNORA_QUERY='<库内已知答案的查询>' \
+WEKNORA_EXPECT='<期望出现在命中正文中的字符串>' \
+node tests/weknora-real.mjs
+```
+
+脚本行为：
+- 缺少任一必需项即以退出码 **2** 失败，**不会跳过**（不把“没跑”记成“通过”）。
+- 逐项打印 PASS/FAIL 与耗时，产出 `evidence/weknora-real-<时间戳>.json`。
+- 全部通过退出码 0，任一项失败退出码 1。
+- 只创建、读取、更新、删除**自己创建的**合成文档（标题含 `合成验收经验` 与稳定标记）；
+  结束时自动清理；`T2_KEEP_SYNTHETIC=1` 可保留以便人工核对。
+- 不触碰任何既有文档，不打印密钥正文。
+
 ## 前置条件
 
 | 输入 | 说明 |
