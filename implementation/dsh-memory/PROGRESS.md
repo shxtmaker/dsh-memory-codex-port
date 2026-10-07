@@ -34,9 +34,13 @@ npm 公共缓存在沙箱下只读，安装改用工作区缓存：
 | P10 | 设置页扩展 | 已实现并验证（类型与构建） | `src/client/MemorySettingsSection.tsx`、`locales.ts`、`style.ts` |
 | P11 | 整理分批与用量文案 | 已实现并验证 | `tests/weknora-batching.test.mjs` 5/5；1024 明确标为字节额度 |
 | P12 | 打包与回滚步骤 | 已实现并验证 | `scripts/release.mjs`；`dist/dsh-memory-local-0.3.0.tgz` + SHA256 |
-| P13 | T1/T2/T3 验收 | T1 通过；T2/T3 协议与状态机通过，真实环境受阻 | `ACCEPTANCE.md`；`docs/verification/t2-t3-entry.md` |
+| P13 | T1/T2/T3 验收 | T1 真实 Host 通过；T2/T3 协议与状态机通过，真实服务受阻 | `ACCEPTANCE.md`；`docs/verification/t2-t3-entry.md`；`tests/t1-install.mjs` |
 
 合计自动化检查：**89/89 通过**（`npm test`），构建与两份类型检查通过。
+T1 真实验收另经 `node tests/t1-install.mjs` 通过（隔离 profile 安装 + 真实 loopback Host）。
+
+安全备份：工作区根 `_package/` 与 `_ref/` 为方案包与 WeKnora 参考源码，不属于交付物；
+交付物为 `dist/dsh-memory-local-0.3.0.tgz`（SHA256 见 `dist/SHA256SUMS.txt`）。
 
 ## 本轮修复的真实缺陷
 
@@ -56,6 +60,10 @@ npm 公共缓存在沙箱下只读，安装改用工作区缓存：
 8. **`previewStore`/`confirmPreview` 结构不完整**：不接受批准时间与项目信息，预览无法落库。
 9. **ZodError 被错误码掩码吞掉**：所有校验错误都折成 `STORAGE_ERROR`，无法诊断。
 10. **测试断言在 POSIX 上恒不匹配**：`p.root === cwd.toLowerCase()` 忽略路径分隔符差异（基线问题）。
+11. **`ConnectionInput.baseUrl` 必填**：导致「引用已有连接」（切换开关、删除）在 Typert 边界校验即被拒。
+12. **设置页按扁平数组读 `publications`**：Host 返回 `{publications,outbox,tombstones}`，
+    触发 `filter is not a function`，整个记忆设置页崩溃、记忆页面完全不可见。
+13. **队列失败项判定错误**：发布记录不代表队列健康，改为按 outbox 的 `state='failed'` 渲染。
 
 ## 当前阻塞
 
