@@ -61,8 +61,8 @@ export declare const extractionSchema: z.ZodObject<{
 export declare const proposalSchema: z.ZodObject<{
     changes: z.ZodArray<z.ZodObject<{
         op: z.ZodEnum<{
-            add: "add";
             update: "update";
+            add: "add";
             revoke: "revoke";
         }>;
         id: z.ZodOptional<z.ZodString>;

@@ -6,7 +6,9 @@ import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { terms, redact, tokens, extractionSchema, proposalSchema } from '../shared.ts'
 import { localUsageDay } from '../usage-statistics.ts'
-import type { MemoryItem, Source, Project, Job, DailyUsage } from '../contracts.ts'
+import { migrate, SCHEMA_VERSION } from './migrations.ts'
+import { DEFAULT_CONNECTION_SETTINGS } from '../contracts.ts'
+import type { MemoryItem, Source, Project, Job, DailyUsage, WeKnoraConnection, ConnectionSettings, ProjectBinding, ExternalEvidence, RetiredReference, Publication, OutboxOperation, RemoteTombstone, RemoteRef } from '../contracts.ts'
 
 const boot = z.object({ root: z.string(), owner: z.string(), trust: z.string(), profile: z.string() }).parse(workerData)
 // 不允许数据目录或其既有祖先通过 junction/symlink 进入其他位置。
@@ -17,39 +19,15 @@ const root = realpathSync(boot.root)
 try{if(lstatSync(join(root,'state.sqlite')).isSymbolicLink())throw new Error('PATH_DENIED')}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error}
 const db = new DatabaseSync(join(root, 'state.sqlite'))
 const version = Number(db.prepare('PRAGMA user_version').get()?.user_version)
-if (version > 1) throw new Error('FUTURE_SCHEMA')
+// 更新版本的结构可能包含本版本无法解释的语义，拒绝读取而不是静默降级。
+if (version > SCHEMA_VERSION) throw new Error('FUTURE_SCHEMA')
 if(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_profiles'").get()){
   const existing=db.prepare('SELECT * FROM memory_profiles').get()
   if(existing&&(existing.id!==boot.profile||existing.owner!==boot.owner||existing.trust!==boot.trust))throw new Error('PROFILE_IDENTITY_MISMATCH')
 }
 db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=1000')
-db.exec(`
-CREATE TABLE IF NOT EXISTS memory_profiles(id TEXT PRIMARY KEY, owner TEXT NOT NULL, trust TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY, root TEXT NOT NULL, target TEXT NOT NULL, data TEXT NOT NULL, UNIQUE(root,target));
-CREATE TABLE IF NOT EXISTS scope_epochs(scope TEXT PRIMARY KEY, epoch INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL DEFAULT '{}');
-CREATE TABLE IF NOT EXISTS source_segments(id TEXT PRIMARY KEY, session TEXT NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL, data TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS source_exclusions(scope TEXT NOT NULL, session TEXT NOT NULL, watermark INTEGER NOT NULL, PRIMARY KEY(scope,session));
-CREATE TABLE IF NOT EXISTS extractions(id TEXT PRIMARY KEY, scope TEXT NOT NULL, source TEXT NOT NULL, hash TEXT NOT NULL, data TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS memory_items(id TEXT PRIMARY KEY, scope TEXT NOT NULL, data TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS memory_sources(memory TEXT NOT NULL, source TEXT NOT NULL, PRIMARY KEY(memory,source));
-CREATE TABLE IF NOT EXISTS search_terms(term TEXT NOT NULL, memory TEXT NOT NULL, PRIMARY KEY(term,memory));
-CREATE INDEX IF NOT EXISTS search_memory ON search_terms(memory);
-CREATE TABLE IF NOT EXISTS memory_usage(session TEXT NOT NULL, epoch INTEGER NOT NULL, memory TEXT NOT NULL, revision INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(session,epoch,memory,revision));
-CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, key TEXT UNIQUE NOT NULL, scope TEXT NOT NULL, data TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS tombstones(id TEXT PRIMARY KEY, scope TEXT NOT NULL, source TEXT, time INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS snapshots(scope TEXT PRIMARY KEY, generation TEXT NOT NULL, hash TEXT NOT NULL, data TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS consolidation_baselines(scope TEXT PRIMARY KEY, data TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS budget_ledger(session TEXT PRIMARY KEY, epoch INTEGER NOT NULL DEFAULT 0, reserved INTEGER NOT NULL DEFAULT 0, settled INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS reservations(id TEXT PRIMARY KEY, session TEXT NOT NULL, data TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS background_ledger(id INTEGER PRIMARY KEY CHECK(id=1), credit REAL NOT NULL DEFAULT 0, day TEXT NOT NULL, used INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS foreground_usage(id TEXT PRIMARY KEY, tokens INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS credit_grants(id TEXT PRIMARY KEY, kind TEXT NOT NULL, amount REAL NOT NULL, time INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS audit_events(id TEXT PRIMARY KEY, action TEXT NOT NULL, target TEXT NOT NULL, time INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS session_policy(id TEXT PRIMARY KEY, data TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS usage_attempts(id TEXT PRIMARY KEY, scope TEXT NOT NULL, kind TEXT NOT NULL, usage INTEGER, time INTEGER NOT NULL);
-CREATE INDEX IF NOT EXISTS usage_attempts_time_scope ON usage_attempts(time,scope);
-PRAGMA user_version=1;
-`)
+// 结构升级在单一事务内逐级执行；失败回滚后仍停留在旧版本，不会留下半升级状态。
+transaction(() => { migrate(db, version) })
 if(!db.prepare('PRAGMA table_info(budget_ledger)').all().some(column=>column.name==='updatedAt'))db.exec('ALTER TABLE budget_ledger ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0')
 const bound = db.prepare('SELECT * FROM memory_profiles').get()
 if (bound && (bound.id !== boot.profile || bound.owner !== boot.owner || bound.trust !== boot.trust)) throw new Error('PROFILE_IDENTITY_MISMATCH')
@@ -185,6 +163,89 @@ function fence(job: Job & { epochs?: Record<string,number> }): void {
   const live=get<Job>('jobs',job.id)
   if (!live || live.fence!==job.fence || live.state!=='running' || live.leaseUntil<Date.now()) throw new Error('STALE_LEASE')
   for (const [id,epoch] of Object.entries(job.epochs ?? {[job.scope]:job.epoch})) if (scope(id).epoch!==epoch || !enabled(id,'generate')) throw new Error('STALE_EPOCH')
+}
+/* ── WeKnora 连接、绑定与远端证据 ─────────────────────────────────────── */
+
+/** 连接名只用于本机配置，不接受超长或带路径分隔符的值。 */
+const connectionIdSchema=z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
+/** 只允许 http(s) 绝对地址；不跟随用户输入到其他协议。 */
+const baseUrlSchema=z.string().max(2048).refine(value=>{try{const url=new URL(value);return url.protocol==='https:'||url.protocol==='http:'}catch{return false}},{message:'INVALID_BASE_URL'})
+/** 凭据引用名与 DSH credential ref 语法保持一致，不含密钥正文。 */
+const credentialRefSchema=z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/)
+const kbIdSchema=z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/)
+const connectionSettingsSchema=z.object({
+  maxKnowledgeBases:z.number().int().min(1).max(2),
+  requestDeadlineMs:z.number().int().min(200).max(30000),
+  remoteEvidenceBytes:z.number().int().min(256).max(16384),
+  retiredReferenceBytes:z.number().int().min(64).max(4096),
+  maxKnowledgeCallsPerTurn:z.number().int().min(1).max(8),
+  publishMode:z.enum(['reviewed-only']),
+  useCrossSessionRemoteCache:z.boolean(),
+}).strict()
+function connectionRow(connectionId:string):{data:string;revision:number}|undefined{
+  return db.prepare('SELECT data,config_revision AS revision FROM weknora_connections WHERE connection_id=?').get(connectionId) as {data:string;revision:number}|undefined
+}
+/** 入库前的规范形态：连接字段与 settings 分层，settings 只含预算与策略参数。 */
+function connectionRecord(row:{data:string;revision:number}):WeKnoraConnection&{settings:ConnectionSettings}{
+  const stored=JSON.parse(row.data) as Record<string,unknown>
+  const settings=connectionSettingsSchema.parse(stored.settings??{...DEFAULT_CONNECTION_SETTINGS})
+  return {...(stored as unknown as WeKnoraConnection),configRevision:Number(row.revision),settings}
+}
+/** 连接快照连同 configRevision 与设置一起返回；运行时不维护第二份可编辑配置。 */
+function connectionView(row:{data:string;revision:number}):WeKnoraConnection&ConnectionSettings{
+  const {settings,...connection}=connectionRecord(row)
+  return {...connection,...settings}
+}
+function connectionById(connectionId:string):WeKnoraConnection&ConnectionSettings{
+  const row=connectionRow(connectionId);if(!row)throw new Error('NOT_CONFIGURED');return connectionView(row)
+}
+/** 连接设置变更使在途请求失效；generation 与作用域 epoch 同理。 */
+function bumpConnection(connectionId:string):number{
+  db.prepare('INSERT INTO connection_generations(connection_id,generation) VALUES(?,1) ON CONFLICT(connection_id) DO UPDATE SET generation=generation+1').run(connectionId)
+  return Number((db.prepare('SELECT generation FROM connection_generations WHERE connection_id=?').get(connectionId) as {generation:number}).generation)
+}
+function bindingRow(projectId:string):ProjectBinding|undefined{
+  const row=db.prepare('SELECT * FROM project_bindings WHERE local_project_id=?').get(projectId)
+  if(!row)return undefined
+  return {localProjectId:String(row.local_project_id),connectionId:String(row.connection_id),readKbIds:JSON.parse(String(row.read_kb_ids)) as string[],publishKbId:String(row.publish_kb_id),bindingRevision:Number(row.binding_revision),updatedAt:Number(row.updated_at)}
+}
+/** 无绑定时禁止远端检索；不退化为主机上的全部可见库。 */
+function requireBinding(projectId:string):ProjectBinding{
+  scope(projectId)
+  const binding=bindingRow(projectId);if(!binding)throw new Error('BINDING_MISSING');return binding
+}
+function slotState(session:string):{generation:number;activeSlot:string;retiredBytes:number}{
+  db.prepare('INSERT OR IGNORE INTO remote_evidence_slots(session_id,generation,active_slot,retired_bytes,data) VALUES(?,0,\'\',0,\'{}\')').run(session)
+  const row=db.prepare('SELECT * FROM remote_evidence_slots WHERE session_id=?').get(session)!
+  return {generation:Number(row.generation),activeSlot:String(row.active_slot),retiredBytes:Number(row.retired_bytes)}
+}
+function externalEvidence(slotId:string):ExternalEvidence|undefined{
+  const row=db.prepare('SELECT data FROM external_evidence WHERE slot_id=?').get(slotId)
+  return row?JSON.parse(String(row.data)) as ExternalEvidence:undefined
+}
+function retiredTotal(session:string):number{
+  const row=db.prepare('SELECT COALESCE(SUM(bytes),0) AS total FROM retired_references WHERE session_id=?').get(session)!
+  return Number(row.total)
+}
+/** 退役引用按最旧优先裁剪到配置上限内；只处理本插件已退役的 knowledge 结果。 */
+function trimRetired(session:string,limit:number):void{
+  while(retiredTotal(session)>limit){
+    const oldest=db.prepare('SELECT slot_id FROM retired_references WHERE session_id=? ORDER BY retired_at ASC,rowid ASC LIMIT 1').get(session) as {slot_id:string}|undefined
+    if(!oldest)break
+    db.prepare('DELETE FROM retired_references WHERE slot_id=?').run(oldest.slot_id)
+  }
+}
+function publicationRow(publishId:string):Publication|undefined{
+  const row=db.prepare('SELECT data FROM memory_publications WHERE publish_id=?').get(publishId)
+  return row?JSON.parse(String(row.data)) as Publication:undefined
+}
+function outboxRow(operationId:string):OutboxOperation|undefined{
+  const row=db.prepare('SELECT data FROM sync_outbox WHERE operation_id=?').get(operationId)
+  return row?JSON.parse(String(row.data)) as OutboxOperation:undefined
+}
+function storeOutbox(operation:OutboxOperation):void{
+  db.prepare('INSERT INTO sync_outbox(operation_id,publish_id,op,state,generation,next_retry_at,data) VALUES(?,?,?,?,?,?,?) ON CONFLICT(operation_id) DO UPDATE SET state=excluded.state,generation=excluded.generation,next_retry_at=excluded.next_retry_at,data=excluded.data')
+    .run(operation.operationId,operation.publishId,operation.op,operation.state,operation.generation,operation.nextRetryAt,JSON.stringify({...operation,updatedAt:Date.now()}))
 }
 const argsSchema=z.record(z.string(),z.unknown())
 function execute(op: string, input: unknown): unknown {
@@ -369,6 +430,272 @@ function execute(op: string, input: unknown): unknown {
       db.prepare('DELETE FROM reservations WHERE id=?').run(str('id'));db.prepare('UPDATE budget_ledger SET reserved=max(0,reserved-?),settled=settled+?,updatedAt=? WHERE session=?').run(value.cost,value.cost,Date.now(),value.session)
       for(const item of value.records)db.prepare('INSERT OR IGNORE INTO memory_usage VALUES(?,?,?,?,?)').run(value.session,value.epoch,item.id,item.revision,JSON.stringify({request:str('request'),time:Date.now(),scope:item.scope}));return true
     })
+    /* ── 连接设置：单一权威存储 ─────────────────────────────────────── */
+    case 'connections': return all<{data:string;revision:number}>('weknora_connections').map(connectionView)
+    case 'connection': return connectionById(connectionIdSchema.parse(a.connectionId))
+    case 'saveConnection': return transaction(()=>{
+      const input=z.object({
+        connectionId:connectionIdSchema,baseUrl:baseUrlSchema,apiProfile:z.string().max(64).default('v0.8.2-hybrid'),
+        tenantId:z.string().max(64).default(''),readCredentialRef:z.string().max(128).default(''),publishCredentialRef:z.string().max(128).default(''),
+      }).strict().parse(a.connection)
+      if(input.readCredentialRef&&!credentialRefSchema.safeParse(input.readCredentialRef).success)throw new Error('INVALID_CREDENTIAL_REF')
+      if(input.publishCredentialRef&&!credentialRefSchema.safeParse(input.publishCredentialRef).success)throw new Error('INVALID_CREDENTIAL_REF')
+      // 发布凭据引用必须与读取凭据引用分开；同一引用无法表达两套能力。
+      if(input.publishCredentialRef&&input.publishCredentialRef===input.readCredentialRef)throw new Error('CREDENTIAL_REF_CONFLICT')
+      const existing=connectionRow(input.connectionId)
+      const previous=existing?connectionRecord(existing):undefined
+      const value:WeKnoraConnection&{settings:ConnectionSettings}={
+        connectionId:input.connectionId,baseUrl:input.baseUrl,apiProfile:input.apiProfile,tenantId:input.tenantId,
+        readCredentialRef:input.readCredentialRef,publishCredentialRef:input.publishCredentialRef,
+        readEnabled:previous?.readEnabled??false,publishEnabled:previous?.publishEnabled??false,
+        configRevision:(existing?Number(existing.revision):0)+1,createdAt:previous?.createdAt??Date.now(),updatedAt:Date.now(),
+        settings:previous?.settings??{...DEFAULT_CONNECTION_SETTINGS},
+      }
+      db.prepare('INSERT INTO weknora_connections(connection_id,data,config_revision) VALUES(?,?,?) ON CONFLICT(connection_id) DO UPDATE SET data=excluded.data,config_revision=excluded.config_revision')
+        .run(value.connectionId,JSON.stringify(value),value.configRevision)
+      bumpConnection(value.connectionId);audit('connection-save',value.connectionId)
+      return connectionById(value.connectionId)
+    })
+    case 'saveConnectionSettings': return transaction(()=>{
+      const id=connectionIdSchema.parse(a.connectionId),current=connectionRecord(connectionRow(id)!)
+      const settings=connectionSettingsSchema.parse(a.settings)
+      const stored={...current,settings,updatedAt:Date.now()}
+      db.prepare('UPDATE weknora_connections SET data=?,config_revision=config_revision+1 WHERE connection_id=?').run(JSON.stringify(stored),id)
+      const revision=Number((db.prepare('SELECT config_revision AS revision FROM weknora_connections WHERE connection_id=?').get(id) as {revision:number}).revision)
+      bumpConnection(id);audit('connection-settings',id)
+      return {...connectionById(id),configRevision:revision}
+    })
+    case 'toggleConnection': return transaction(()=>{
+      const id=connectionIdSchema.parse(a.connectionId),current=connectionRecord(connectionRow(id)!)
+      const readEnabled=typeof a.readEnabled==='boolean'?a.readEnabled:current.readEnabled
+      const publishEnabled=typeof a.publishEnabled==='boolean'?a.publishEnabled:current.publishEnabled
+      const stored={...current,readEnabled,publishEnabled,updatedAt:Date.now()}
+      // 关闭任一能力都立即使该连接的 generation 失效，取消在途请求。
+      if((current.readEnabled&&!readEnabled)||(current.publishEnabled&&!publishEnabled))bumpConnection(id)
+      db.prepare('UPDATE weknora_connections SET data=? WHERE connection_id=?').run(JSON.stringify(stored),id)
+      audit('connection-toggle',id)
+      return connectionById(id)
+    })
+    case 'removeConnection': return transaction(()=>{
+      const id=connectionIdSchema.parse(a.connectionId)
+      db.prepare('DELETE FROM weknora_connections WHERE connection_id=?').run(id)
+      db.prepare('DELETE FROM project_bindings WHERE connection_id=?').run(id)
+      bumpConnection(id);audit('connection-remove',id)
+      return {removed:true}
+    })
+    case 'connectionGeneration': return Number((db.prepare('SELECT generation FROM connection_generations WHERE connection_id=?').get(connectionIdSchema.parse(a.connectionId)) as {generation:number}|undefined)?.generation??0)
+    /* ── 项目绑定 ──────────────────────────────────────────────────── */
+    case 'binding': {const id=str('projectId');const binding=bindingRow(id);if(!binding)throw new Error('BINDING_MISSING');return binding}
+    case 'bindingOrNull': return bindingRow(str('projectId'))??null
+    case 'bindings': return all<ProjectBinding>('project_bindings')
+    case 'setBinding': return transaction(()=>{
+      const projectId=str('projectId');scope(projectId)
+      // 先做结构校验，再给出可诊断的领域错误代码。
+      const input=z.object({connectionId:connectionIdSchema,readKbIds:z.array(kbIdSchema).max(8),publishKbId:kbIdSchema.or(z.literal('')).default('')}).strict().parse(a.binding)
+      const connection=connectionById(input.connectionId)
+      if(input.readKbIds.length>connection.maxKnowledgeBases)throw new Error('KB_LIMIT_EXCEEDED')
+      // 发布库若参与召回，必须同时出现在读取列表中，避免权限不一致。
+      if(input.publishKbId&&!input.readKbIds.includes(input.publishKbId))throw new Error('PUBLISH_KB_NOT_READABLE')
+      const previous=bindingRow(projectId)
+      const binding:ProjectBinding={localProjectId:projectId,connectionId:input.connectionId,readKbIds:input.readKbIds,publishKbId:input.publishKbId,bindingRevision:(previous?.bindingRevision??0)+1,updatedAt:Date.now()}
+      db.prepare('INSERT INTO project_bindings(local_project_id,connection_id,read_kb_ids,publish_kb_id,binding_revision,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(local_project_id) DO UPDATE SET connection_id=excluded.connection_id,read_kb_ids=excluded.read_kb_ids,publish_kb_id=excluded.publish_kb_id,binding_revision=excluded.binding_revision,updated_at=excluded.updated_at')
+        .run(binding.localProjectId,binding.connectionId,JSON.stringify(binding.readKbIds),binding.publishKbId,binding.bindingRevision,binding.updatedAt)
+      audit('binding-set',projectId)
+      return binding
+    })
+    case 'removeBinding': return transaction(()=>{
+      const projectId=str('projectId')
+      db.prepare('DELETE FROM project_bindings WHERE local_project_id=?').run(projectId)
+      audit('binding-remove',projectId)
+      return {removed:true}
+    })
+    /* ── 远端证据槽位：单活动槽位与串行提交 ─────────────────────────── */
+    case 'reserveSlot': return transaction(()=>{
+      const session=str('session');const state=slotState(session)
+      if(get<{off:boolean}>('session_policy',session)?.off)throw new Error('SESSION_OFF')
+      if(!z.array(z.string().max(128)).max(2).parse(a.kbIds).length)throw new Error('BINDING_MISSING')
+      // 同一会话同时只允许一份远端活动结果；在途或已提交都视为占用。
+      const occupied=db.prepare("SELECT slot_id FROM external_evidence WHERE session_id=? AND state IN ('reserved','active')").get(session)
+      if(occupied)throw new Error('SLOT_BUSY')
+      const generation=state.generation+1,slotId=randomUUID()
+      const slot:ExternalEvidence={slotId,sessionId:session,generation,userTurn:num('userTurn'),toolCallId:str('toolCallId'),resultSeq:-1,state:'reserved',contentBytes:0,bindingRevision:num('bindingRevision'),connectionId:connectionIdSchema.parse(a.connectionId),kbIds:z.array(kbIdSchema).max(2).parse(a.kbIds),toolName:z.enum(['search','read']).parse(a.toolName),remoteRefs:[],createdSeq:num('createdSeq'),createdAt:Date.now(),replacedBy:'',retiredBytes:0}
+      db.prepare('INSERT INTO external_evidence(slot_id,session_id,generation,state,created_seq,data) VALUES(?,?,?,?,?,?)').run(slot.slotId,session,generation,'reserved',slot.createdSeq,JSON.stringify(slot))
+      db.prepare('UPDATE remote_evidence_slots SET generation=? WHERE session_id=?').run(generation,session)
+      audit('slot-reserve',slot.slotId)
+      return slot
+    })
+    case 'slot': return externalEvidence(str('slotId'))??null
+    case 'activeSlot': {const session=str('session');const row=db.prepare("SELECT data FROM external_evidence WHERE session_id=? AND state='active'").get(session);return row?JSON.parse(String(row.data)) as ExternalEvidence:null}
+    case 'slotCheck': {
+      const slot=externalEvidence(str('slotId'));if(!slot)return {ok:false,code:'SOURCE_RETIRED'}
+      if(slot.state!=='reserved')return {ok:false,code:'SOURCE_RETIRED'}
+      if(get<{off:boolean}>('session_policy',slot.sessionId)?.off)return {ok:false,code:'CANCELLED'}
+      const binding=bindingRow(str('projectId'))
+      if(!binding||binding.bindingRevision!==slot.bindingRevision)return {ok:false,code:'BINDING_MISSING'}
+      const connection=connectionRow(slot.connectionId)
+      if(!connection)return {ok:false,code:'NOT_CONFIGURED'}
+      const current=connectionView(connection)
+      if(!current.readEnabled)return {ok:false,code:'READ_DISABLED'}
+      return {ok:true,code:'OK'}
+    }
+    case 'activateSlot': return transaction(()=>{
+      const slot=externalEvidence(str('slotId'))
+      if(!slot)throw new Error('SOURCE_RETIRED')
+      const refs=z.array(z.object({kbId:kbIdSchema,knowledgeId:z.string().max(128),chunkId:z.string().max(128),rank:z.number().int(),score:z.number(),bodyHash:z.string().max(128),title:z.string().max(400),fetchedAt:z.number(),version:z.string().max(64).optional(),remoteRevision:z.number().int().optional()})).max(8).parse(a.refs)
+      const contentBytes=num('contentBytes')
+      let replaced=''
+      if(slot.state==='active'){
+        // 同一槽位的重复提交就地更新；只有另一份活动正文才需要先退役。
+        const other=db.prepare("SELECT data FROM external_evidence WHERE session_id=? AND state='active' AND slot_id<>?").get(slot.sessionId,slot.slotId)
+        if(other){
+          const old=JSON.parse(String(other.data)) as ExternalEvidence
+          db.prepare("UPDATE external_evidence SET state='retired',data=? WHERE slot_id=?").run(JSON.stringify({...old,state:'retired',replacedBy:slot.slotId}),old.slotId)
+          replaced=old.slotId
+        }
+      }else if(slot.state!=='reserved')throw new Error('SOURCE_RETIRED')
+      else {
+        // 提交前先撤下旧正文；旧正文未成功退役就不发布新结果。
+        const previous=db.prepare("SELECT data FROM external_evidence WHERE session_id=? AND state='active'").get(slot.sessionId)
+        if(previous){
+          const old=JSON.parse(String(previous.data)) as ExternalEvidence
+          db.prepare("UPDATE external_evidence SET state='retired',data=? WHERE slot_id=?").run(JSON.stringify({...old,state:'retired',replacedBy:slot.slotId,retiredBytes:0}),old.slotId)
+          replaced=old.slotId
+        }
+      }
+      const active:ExternalEvidence={...slot,state:'active',resultSeq:num('resultSeq'),contentBytes,remoteRefs:refs,replacedBy:''}
+      db.prepare("UPDATE external_evidence SET state='active',data=? WHERE slot_id=?").run(JSON.stringify(active),slot.slotId)
+      db.prepare('UPDATE remote_evidence_slots SET active_slot=? WHERE session_id=?').run(slot.slotId,slot.sessionId)
+      audit('slot-activate',slot.slotId)
+      return {slot:active,replaced}
+    })
+    case 'retireSlot': return transaction(()=>{
+      const slot=externalEvidence(str('slotId'))
+      if(!slot)return {retired:false}
+      const limit=z.number().int().min(64).max(4096).parse(a.limit)
+      const content=typeof a.content==='string'?a.content.slice(0,limit):''
+      db.prepare("UPDATE external_evidence SET state='retired',data=? WHERE slot_id=?").run(JSON.stringify({...slot,state:'retired',retiredBytes:tokens(content),replacedBy:typeof a.replacedBy==='string'?a.replacedBy:''}),slot.slotId)
+      const bytes=tokens(content)
+      // 短引用只保留身份与配对，正文在超限时被裁剪。
+      db.prepare('INSERT INTO retired_references(slot_id,session_id,bytes,retired_at,data) VALUES(?,?,?,?,?) ON CONFLICT(slot_id) DO UPDATE SET bytes=excluded.bytes,retired_at=excluded.retired_at,data=excluded.data')
+        .run(slot.slotId,slot.sessionId,bytes,Date.now(),JSON.stringify({slotId:slot.slotId,sessionId:slot.sessionId,generation:slot.generation,content,bytes,retiredAt:Date.now()}))
+      trimRetired(slot.sessionId,limit)
+      db.prepare("UPDATE remote_evidence_slots SET active_slot='',retired_bytes=? WHERE session_id=?").run(retiredTotal(slot.sessionId),slot.sessionId)
+      audit('slot-retire',slot.slotId)
+      return {retired:true,retiredBytes:retiredTotal(slot.sessionId)}
+    })
+    case 'retired': {
+      const session=str('session'),limit=z.number().int().min(64).max(4096).parse(a.limit)
+      return db.prepare('SELECT data FROM retired_references WHERE session_id=? ORDER BY retired_at ASC').all(session)
+        .map(row=>JSON.parse(String(row.data)) as RetiredReference)
+    }
+    case 'orphanSlots': return transaction(()=>{
+      // 重启对账：无法证明仍在模型可见面上的预留与活动槽位先清理，再允许新预留。
+      const live=z.array(z.string().max(128)).parse(a.liveSeqs)
+      const rows=db.prepare("SELECT * FROM external_evidence WHERE state IN ('reserved','active')").all() as {slot_id:string;session_id:string;data:string}[]
+      const orphaned:string[]=[]
+      for(const row of rows){
+        const slot=JSON.parse(String(row.data)) as ExternalEvidence
+        const key=`${slot.sessionId}:${slot.resultSeq}`
+        if(slot.state==='reserved'||!live.includes(key)){
+          db.prepare("UPDATE external_evidence SET state='orphan',data=? WHERE slot_id=?").run(JSON.stringify({...slot,state:'orphan'}),slot.slotId)
+          db.prepare("UPDATE remote_evidence_slots SET active_slot='' WHERE session_id=? AND active_slot=?").run(slot.sessionId,slot.slotId)
+          orphaned.push(slot.slotId)
+        }
+      }
+      if(orphaned.length)audit('slot-orphan',orphaned.join(','))
+      return {orphaned}
+    })
+    /* ── 发布映射、出站队列与墓碑 ───────────────────────────────────── */
+    case 'publications': return all<Publication>('memory_publications')
+    case 'publication': return publicationRow(str('publishId'))??null
+    case 'publicationForMemory': {const row=db.prepare('SELECT data FROM memory_publications WHERE memory_id=?').get(str('memoryId'));return row?JSON.parse(String(row.data)) as Publication:null}
+    case 'publicationUpsert': return transaction(()=>{
+      const publication=z.object({
+        publishId:z.string().max(128),memoryId:z.string().max(128),scope:z.string().max(128),targetKbId:kbIdSchema,
+        connectionId:connectionIdSchema,remoteId:z.string().max(128).default(''),state:z.string().max(32),
+        publishedSourceRevision:z.number().int().nonnegative(),publishedBodyHash:z.string().max(128),
+        candidateSourceRevision:z.number().int().nonnegative(),candidateBodyHash:z.string().max(128),
+        sourceHash:z.string().max(128),approved:z.unknown().nullable(),remoteVersion:z.string().max(128).default(''),
+        generation:z.number().int().nonnegative(),approvedAt:z.number(),lastIndexPollAt:z.number(),indexDeadline:z.number(),
+        error:z.string().max(300).default(''),
+      }).strict().parse(a.publication) as Publication
+      const previous=publicationRow(publication.publishId)
+      // 一个本地记忆只能有一个发布副本；重复绑定必须显式走更新流程。
+      const occupied=db.prepare('SELECT publish_id FROM memory_publications WHERE memory_id=?').get(publication.memoryId) as {publish_id:string}|undefined
+      if(occupied&&occupied.publish_id!==publication.publishId)throw new Error('MEMORY_ALREADY_PUBLISHED')
+      const value:Publication={...publication,createdAt:previous?.createdAt??Date.now(),updatedAt:Date.now()}
+      db.prepare('INSERT INTO memory_publications(publish_id,memory_id,target_kb_id,connection_id,state,data) VALUES(?,?,?,?,?,?) ON CONFLICT(publish_id) DO UPDATE SET memory_id=excluded.memory_id,target_kb_id=excluded.target_kb_id,connection_id=excluded.connection_id,state=excluded.state,data=excluded.data')
+        .run(value.publishId,value.memoryId,value.targetKbId,value.connectionId,value.state,JSON.stringify(value))
+      return value
+    })
+    case 'outboxEnqueue': return transaction(()=>{
+      const operation=z.object({
+        operationId:z.string().max(128),publishId:z.string().max(128),op:z.enum(['create','update','withdraw']),
+        approvedSnapshot:z.unknown().nullable(),attempts:z.number().int().nonnegative().default(0),
+        nextRetryAt:z.number(),state:z.enum(['pending','running','done','failed','cancelled']).default('pending'),
+        lastErrorCode:z.string().max(64).default(''),generation:z.number().int().nonnegative(),
+      }).strict().parse(a.operation) as OutboxOperation
+      storeOutbox({...operation,createdAt:outboxRow(operation.operationId)?.createdAt??Date.now(),updatedAt:Date.now()})
+      return outboxRow(operation.operationId)
+    })
+    case 'outbox': return all<OutboxOperation>('sync_outbox').sort((a,b)=>(a.createdAt??0)-(b.createdAt??0))
+    case 'outboxPending': return all<OutboxOperation>('sync_outbox').filter(op=>op.state==='pending'&&op.nextRetryAt<=Date.now()).sort((a,b)=>a.createdAt-b.createdAt).slice(0,4)
+    case 'outboxUpdate': return transaction(()=>{
+      const current=outboxRow(str('operationId'));if(!current)throw new Error('NOT_FOUND')
+      const next:OutboxOperation={...current,
+        state:z.enum(['pending','running','done','failed','cancelled']).parse(a.state),
+        attempts:typeof a.attempts==='number'?z.number().int().nonnegative().parse(a.attempts):current.attempts,
+        nextRetryAt:typeof a.nextRetryAt==='number'?z.number().parse(a.nextRetryAt):current.nextRetryAt,
+        lastErrorCode:typeof a.lastErrorCode==='string'?a.lastErrorCode.slice(0,64):current.lastErrorCode,
+        approvedSnapshot:current.approvedSnapshot,
+      }
+      storeOutbox(next);return next
+    })
+    /** 候选修改后撤销尚未发送的过时操作，并抬升 generation。 */
+    case 'outboxCancelStale': return transaction(()=>{
+      const publishId=str('publishId'),generation=num('generation')
+      const rows=all<OutboxOperation>('sync_outbox').filter(op=>op.publishId===publishId&&op.op==='update'&&op.state==='pending')
+      for(const op of rows)storeOutbox({...op,state:'cancelled',updatedAt:Date.now()})
+      return {cancelled:rows.map(op=>op.operationId),generation}
+    })
+    case 'outboxFailures': return all<OutboxOperation>('sync_outbox').filter(op=>op.state==='failed').map(op=>({operationId:op.operationId,publishId:op.publishId,op:op.op,attempts:op.attempts,lastErrorCode:op.lastErrorCode,nextRetryAt:op.nextRetryAt}))
+    case 'tombstoneAdd': return transaction(()=>{
+      const input=z.object({connectionId:connectionIdSchema,kbId:kbIdSchema,remoteId:z.string().max(128).default(''),publishId:z.string().max(128).default(''),memoryId:z.string().max(128).default(''),sourceEpoch:z.number().int().nonnegative()}).strict().parse(a.tombstone)
+      const id=`${input.connectionId}:${input.kbId}:${input.remoteId||input.publishId}`
+      const existing=get<RemoteTombstone>('remote_tombstones',id)
+      // 删除完成后仍保留屏蔽记录，避免旧结果或旧队列重新发布同一副本。
+      const value:RemoteTombstone={...input,state:existing?.state==='done'?'done':'pending',attempts:existing?.attempts??0,createdAt:existing?.createdAt??Date.now(),updatedAt:Date.now()}
+      db.prepare('INSERT INTO remote_tombstones(id,connection_id,kb_id,remote_id,publish_id,memory_id,state,next_retry_at,data) VALUES(?,?,?,?,?,?,?,0,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,data=excluded.data')
+        .run(id,value.connectionId,value.kbId,value.remoteId,value.publishId,value.memoryId,value.state,JSON.stringify(value))
+      audit('tombstone-add',id)
+      return value
+    })
+    case 'tombstones': return all<RemoteTombstone>('remote_tombstones')
+    case 'tombstonePending': return all<RemoteTombstone>('remote_tombstones').filter(row=>row.state==='pending'||row.state==='failed').slice(0,4)
+    case 'tombstoneUpdate': return transaction(()=>{
+      const connectionId=connectionIdSchema.parse(a.connectionId),kbId=kbIdSchema.parse(a.kbId)
+      const id=`${connectionId}:${kbId}:${String(a.remoteId||a.publishId)}`
+      const current=get<RemoteTombstone>('remote_tombstones',id);if(!current)throw new Error('NOT_FOUND')
+      const value:RemoteTombstone={...current,state:z.enum(['pending','done','failed']).parse(a.state),attempts:typeof a.attempts==='number'?z.number().int().nonnegative().parse(a.attempts):current.attempts,updatedAt:Date.now()}
+      db.prepare('UPDATE remote_tombstones SET state=?,data=? WHERE id=?').run(value.state,JSON.stringify(value),id)
+      return value
+    })
+    /** 墓碑在本地即生效：已删除或被撤回的发布副本不可再被召回或重组。 */
+    case 'tombstoneFor': {
+      const memoryId=typeof a.memoryId==='string'?a.memoryId:'',publishId=typeof a.publishId==='string'?a.publishId:''
+      const rows=all<RemoteTombstone>('remote_tombstones')
+      return rows.find(row=>(memoryId&&row.memoryId===memoryId)||(publishId&&row.publishId===publishId))??null
+    }
+    case 'previewStore': return transaction(()=>{
+      const preview=z.object({previewId:z.string().max(128),memoryId:z.string().max(128),publishId:z.string().max(128),bodyHash:z.string().max(128),body:z.string().max(8000),title:z.string().max(400),sourceRevision:z.number().int().nonnegative(),sourceHash:z.string().max(128),targetKbId:kbIdSchema,connectionId:connectionIdSchema}).strict().parse(a.preview)
+      db.prepare('DELETE FROM publish_previews WHERE memory_id=?').run(preview.memoryId)
+      db.prepare('INSERT INTO publish_previews(preview_id,memory_id,publish_id,body_hash,created_at,data) VALUES(?,?,?,?,?,?)')
+        .run(preview.previewId,preview.memoryId,preview.publishId,preview.bodyHash,Date.now(),JSON.stringify(preview))
+      return preview
+    })
+    case 'preview': {const row=db.prepare('SELECT data FROM publish_previews WHERE preview_id=?').get(str('previewId'));return row?JSON.parse(String(row.data)):null}
+    case 'previewDrop': return transaction(()=>{db.prepare('DELETE FROM publish_previews WHERE preview_id=?').run(str('previewId'));return {removed:true}})
+    case 'schemaVersion': return SCHEMA_VERSION
     case 'close': db.exec('PRAGMA wal_checkpoint(TRUNCATE)');db.close();return true
     default: throw new Error('UNKNOWN_OPERATION')
   }
@@ -382,5 +709,12 @@ function enqueueConsolidate(id:string,interval:number):void {
 parentPort!.on('message',(m:{id:number;op:string;args:unknown;cancel?:number})=>{
   // 同步操作有界、串行；已到达的取消不会排队执行新操作。Client 拒绝晚到回复并回收证据预留。
   if(m.cancel!==undefined)return
-  try {parentPort!.postMessage({id:m.id,value:execute(m.op,m.args)})}catch(error){const message=error instanceof Error?error.message:'STORAGE_ERROR';parentPort!.postMessage({id:m.id,error:/^[A-Z_]+$/.test(message)?message:'STORAGE_ERROR'})}
+  try {parentPort!.postMessage({id:m.id,value:execute(m.op,m.args)})}
+  catch(error){
+    // ZodError 的 message 是问题数组的 JSON，无法直接作为错误代码；
+    // 显式取首条问题的消息，让领域代码与自定义校验代码都能到达调用方。
+    const raw=error instanceof Error?error.message:'STORAGE_ERROR'
+    const message=error instanceof z.ZodError?(error.issues[0]?.message??'INVALID_INPUT'):raw
+    parentPort!.postMessage({id:m.id,error:/^[A-Z][A-Z0-9_]*$/.test(message)?message:'STORAGE_ERROR'})
+  }
 })
