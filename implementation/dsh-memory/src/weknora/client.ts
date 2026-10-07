@@ -66,6 +66,31 @@ export class WeKnoraError extends Error {
   constructor(readonly code: WeKnoraErrorCode, readonly status = 0, readonly remoteCode = '') { super(code) }
 }
 
+const ERROR_CODES = new Set<string>([
+  'UNAUTHORIZED', 'KB_DENIED', 'NOT_FOUND', 'BAD_REQUEST', 'CONFLICT', 'RATE_LIMITED',
+  'UPSTREAM', 'DEADLINE', 'CANCELLED', 'MALFORMED', 'NETWORK', 'CONFIG', 'LIMIT',
+])
+
+/**
+ * 结构化的错误判定。
+ *
+ * 每个入口由 esbuild 独立打包，`client.ts` 会被内联进 index/evidence/sync-outbox，
+ * 因此 `instanceof WeKnoraError` 跨模块恒为 false。这里按固定代码集合判定，
+ * 保证适配器错误在任何模块组合下都能被正确识别。
+ */
+export function isWeKnoraError(error: unknown): error is WeKnoraError {
+  if (error instanceof WeKnoraError) return true
+  if (typeof error !== 'object' || error === null) return false
+  const code = (error as { code?: unknown }).code
+  const status = (error as { status?: unknown }).status
+  return typeof code === 'string' && ERROR_CODES.has(code) && typeof status === 'number'
+}
+
+/** 取固定错误代码；非适配器错误返回 null。 */
+export function weknoraCode(error: unknown): WeKnoraErrorCode | null {
+  return isWeKnoraError(error) ? error.code : null
+}
+
 /** 手工正文上限为 200000 个字符（rune）；本地先拒绝，避免无谓往返。 */
 export const MANUAL_CONTENT_MAX = 200000
 /** custom_metadata 上限：20 个键、键名 ≤64、值 ≤1000。 */
@@ -215,7 +240,8 @@ export class WeKnoraClient {
       for (let attempt = 0; ; attempt++) {
         try { return await this.once<T>(options, signal, options.whole) }
         catch (error) {
-          const retryable = error instanceof WeKnoraError && (error.code === 'UPSTREAM' || error.code === 'RATE_LIMITED' || error.code === 'NETWORK')
+          const code = weknoraCode(error)
+          const retryable = code === 'UPSTREAM' || code === 'RATE_LIMITED' || code === 'NETWORK'
           if (!retryable || attempt + 1 >= attempts || signal.aborted) throw error
           await new Promise(resolve => setTimeout(resolve, 40 * (attempt + 1)))
           if (signal.aborted) throw new WeKnoraError('DEADLINE')
@@ -275,6 +301,19 @@ export class WeKnoraClient {
   async getKnowledge(knowledgeId: string, signal?: AbortSignal): Promise<KnowledgeDetail> {
     const data = await this.request<unknown>({ method: 'GET', path: `/knowledge/${encodeURIComponent(knowledgeId)}`, idempotent: true, signal })
     return this.toDetail(knowledgeSchema.parse(data))
+  }
+  /**
+   * 列出知识库中的文档。用于创建响应丢失后按稳定标记对账：
+   * 只能按标记与正文精确确认唯一匹配，禁止盲目重发创建。
+   */
+  async listKnowledge(kbId: string, page: number, pageSize: number, signal?: AbortSignal): Promise<{ total: number; items: KnowledgeDetail[] }> {
+    const bounded = Math.max(1, Math.min(100, pageSize))
+    const payload = await this.request<{ data?: unknown; total?: number } | unknown[]>({
+      method: 'GET', path: `/knowledge-bases/${encodeURIComponent(kbId)}/knowledge`, query: { page: Math.max(1, page), page_size: bounded }, idempotent: true, whole: true, signal,
+    })
+    const rows = Array.isArray(payload) ? payload : Array.isArray((payload as { data?: unknown }).data) ? (payload as { data: unknown[] }).data : []
+    const total = Array.isArray(payload) ? rows.length : (payload.total ?? rows.length)
+    return { total, items: rows.map(row => this.toDetail(knowledgeSchema.parse(row))) }
   }
   private toDetail(value: z.infer<typeof knowledgeSchema>): KnowledgeDetail {
     const manual = manualMetadata(value.metadata)

@@ -253,10 +253,11 @@ test('P02 发布预览绑定源版本与正文 hash', async () => {
   const worker = new StorageWorker(join(root, 'memory'), 'owner', 'host', 'fixture')
   try {
     await worker.ready
-    await worker.call('previewStore', { preview: { previewId: 'pv-1', memoryId: 'm1', publishId: 'pub-1', bodyHash: 'bh', body: '正文', title: '标题', sourceRevision: 4, sourceHash: 'sh', targetKbId: 'kb-pub', connectionId: 'c1' } })
+    await worker.call('previewStore', { preview: { previewId: 'pv-1', memoryId: 'm1', publishId: 'pub-1', bodyHash: 'bh', body: '正文', title: '标题', sourceRevision: 4, sourceHash: 'sh', targetKbId: 'kb-pub', connectionId: 'c1', approvedAt: 1 } })
     const preview = await worker.call('preview', { previewId: 'pv-1' })
     assert.equal(preview.sourceRevision, 4)
     assert.equal(preview.bodyHash, 'bh')
+    assert.equal(preview.approvedAt, 1, '预览必须绑定批准时间，供页面与确认快照使用')
     assert.equal(await worker.call('preview', { previewId: 'missing' }), null)
     await worker.call('previewDrop', { previewId: 'pv-1' })
     assert.equal(await worker.call('preview', { previewId: 'pv-1' }), null)

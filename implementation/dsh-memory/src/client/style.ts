@@ -56,5 +56,14 @@ export const css=`
 .dm-browser code{font-size:12px;line-height:18px;overflow-wrap:anywhere}
 .dm-page button:focus-visible,.dm-page input:focus-visible,.dm-page select:focus-visible{outline:2px solid var(--dsw-alias-brand-primary-new-colorprimary-new-color,#66b57d);outline-offset:3px}
 @media(max-width:700px){.dm-row{gap:10px;flex-wrap:wrap}.dm-browser-grid{grid-template-columns:1fr}.dm-browser aside{max-height:160px;overflow:auto}}
+.dm-kb-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}
+.dm-kb-fields label{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:center;gap:8px;min-width:0;white-space:nowrap}
+.dm-page .dm-kb-fields input{min-width:0;min-height:36px;max-height:36px;margin:0}
+.dm-kb-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:18px;white-space:nowrap;color:var(--dsw-alias-label-secondary,inherit)}
+.dm-kb-toggle .dm-switch{flex-shrink:0}
+.dm-kb-bases{display:flex;flex-wrap:wrap;gap:8px 16px;margin:8px 0}
+.dm-kb-bases small{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,inherit)}
+.dm-kb pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:18px;max-height:280px;overflow:auto;margin:8px 0;padding:8px 10px;border:.5px solid var(--dsw-alias-border-l3,#8886);border-radius:var(--dsw-radius-md,8px)}
+@media(max-width:700px){.dm-kb-fields{grid-template-columns:1fr}}
 
 `

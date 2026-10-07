@@ -1,6 +1,6 @@
 /** 浏览器与 Host 之间的管理请求。作用域由 Host 解析。 */
 export interface ManageRequest {
-    action: 'overview' | 'providers' | 'models' | 'list' | 'read' | 'save' | 'remove' | 'clear' | 'files' | 'file' | 'export' | 'rebuild' | 'job' | 'projectPolicy' | 'sources' | 'removeSource' | 'knowledgeBases' | 'knowSave' | 'knowRemove' | 'knowToggle' | 'preview' | 'publishConfirm' | 'publications' | 'withdrawRecall' | 'syncNow';
+    action: 'overview' | 'providers' | 'models' | 'list' | 'read' | 'save' | 'remove' | 'clear' | 'files' | 'file' | 'export' | 'rebuild' | 'job' | 'projectPolicy' | 'sources' | 'removeSource' | 'connections' | 'connection' | 'binding' | 'knowledgeBases' | 'knowSave' | 'knowRemove' | 'knowToggle' | 'preview' | 'publishConfirm' | 'publications' | 'withdrawRecall' | 'syncNow';
     provider?: string;
     scope?: string;
     id?: string;

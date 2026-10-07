@@ -8,7 +8,7 @@ import { terms, redact, tokens, extractionSchema, proposalSchema } from '../shar
 import { localUsageDay } from '../usage-statistics.ts'
 import { migrate, SCHEMA_VERSION } from './migrations.ts'
 import { DEFAULT_CONNECTION_SETTINGS } from '../contracts.ts'
-import type { MemoryItem, Source, Project, Job, DailyUsage, WeKnoraConnection, ConnectionSettings, ProjectBinding, ExternalEvidence, RetiredReference, Publication, OutboxOperation, RemoteTombstone, RemoteRef } from '../contracts.ts'
+import type { MemoryItem, Source, Project, Job, DailyUsage, WeKnoraConnection, ConnectionSettings, ProjectBinding, ExternalEvidence, RetiredReference, Publication, OutboxOperation, RemoteTombstone, RemoteRef, ApprovedSnapshot } from '../contracts.ts'
 
 const boot = z.object({ root: z.string(), owner: z.string(), trust: z.string(), profile: z.string() }).parse(workerData)
 // 不允许数据目录或其既有祖先通过 junction/symlink 进入其他位置。
@@ -39,6 +39,8 @@ transaction(()=>{
 
 function day(): string { return new Date().toISOString().slice(0, 10) }
 function hash(value: unknown): string { return createHash('sha256').update(JSON.stringify(value)).digest('hex') }
+/** 正文哈希：与 client.ts / render.ts 使用同一算法，用于跨模块证明正文一致。 */
+function bodyHashOf(text: string): string { return createHash('sha256').update(text).digest('hex') }
 function transaction<T>(fn: () => T): T {
   db.exec('BEGIN IMMEDIATE')
   try { const value = fn(); db.exec('COMMIT'); return value } catch (error) { db.exec('ROLLBACK'); throw error }
@@ -525,6 +527,13 @@ function execute(op: string, input: unknown): unknown {
       return slot
     })
     case 'slot': return externalEvidence(str('slotId'))??null
+    /** 记录槽位的读取游标与构建参数；不改变来源身份与正文。 */
+    case 'slotPatch': return transaction(()=>{
+      const slot=externalEvidence(str('slotId'));if(!slot)throw new Error('SOURCE_RETIRED')
+      const build=z.record(z.string(),z.unknown()).parse(a.build??{})
+      db.prepare('UPDATE external_evidence SET data=? WHERE slot_id=?').run(JSON.stringify({...slot,build:{...((slot as unknown as {build?:Record<string,unknown>}).build??{}),...build}}),slot.slotId)
+      return true
+    })
     case 'activeSlot': {const session=str('session');const row=db.prepare("SELECT data FROM external_evidence WHERE session_id=? AND state='active'").get(session);return row?JSON.parse(String(row.data)) as ExternalEvidence:null}
     case 'slotCheck': {
       const slot=externalEvidence(str('slotId'));if(!slot)return {ok:false,code:'SOURCE_RETIRED'}
@@ -618,6 +627,8 @@ function execute(op: string, input: unknown): unknown {
         sourceHash:z.string().max(128),approved:z.unknown().nullable(),remoteVersion:z.string().max(128).default(''),
         generation:z.number().int().nonnegative(),approvedAt:z.number(),lastIndexPollAt:z.number(),indexDeadline:z.number(),
         error:z.string().max(300).default(''),
+        // 生命周期时间戳由存储维护；从库中读回的对象必须能原样写回。
+        createdAt:z.number().optional(),updatedAt:z.number().optional(),
       }).strict().parse(a.publication) as Publication
       const previous=publicationRow(publication.publishId)
       // 一个本地记忆只能有一个发布副本；重复绑定必须显式走更新流程。
@@ -642,12 +653,12 @@ function execute(op: string, input: unknown): unknown {
     case 'outboxPending': return all<OutboxOperation>('sync_outbox').filter(op=>op.state==='pending'&&op.nextRetryAt<=Date.now()).sort((a,b)=>a.createdAt-b.createdAt).slice(0,4)
     case 'outboxUpdate': return transaction(()=>{
       const current=outboxRow(str('operationId'));if(!current)throw new Error('NOT_FOUND')
+      // 真实部分更新：未提供的字段保持原值，避免调用方必须回传整条记录。
       const next:OutboxOperation={...current,
-        state:z.enum(['pending','running','done','failed','cancelled']).parse(a.state),
+        state:a.state===undefined?current.state:z.enum(['pending','running','done','failed','cancelled']).parse(a.state),
         attempts:typeof a.attempts==='number'?z.number().int().nonnegative().parse(a.attempts):current.attempts,
         nextRetryAt:typeof a.nextRetryAt==='number'?z.number().parse(a.nextRetryAt):current.nextRetryAt,
         lastErrorCode:typeof a.lastErrorCode==='string'?a.lastErrorCode.slice(0,64):current.lastErrorCode,
-        approvedSnapshot:current.approvedSnapshot,
       }
       storeOutbox(next);return next
     })
@@ -687,7 +698,14 @@ function execute(op: string, input: unknown): unknown {
       return rows.find(row=>(memoryId&&row.memoryId===memoryId)||(publishId&&row.publishId===publishId))??null
     }
     case 'previewStore': return transaction(()=>{
-      const preview=z.object({previewId:z.string().max(128),memoryId:z.string().max(128),publishId:z.string().max(128),bodyHash:z.string().max(128),body:z.string().max(8000),title:z.string().max(400),sourceRevision:z.number().int().nonnegative(),sourceHash:z.string().max(128),targetKbId:kbIdSchema,connectionId:connectionIdSchema}).strict().parse(a.preview)
+      const preview=z.object({
+        previewId:z.string().max(128),memoryId:z.string().max(128),publishId:z.string().max(128),
+        bodyHash:z.string().max(128),body:z.string().max(8000),title:z.string().max(400),
+        sourceRevision:z.number().int().nonnegative(),sourceHash:z.string().max(128),
+        targetKbId:kbIdSchema,connectionId:connectionIdSchema,approvedAt:z.number().int().nonnegative(),
+        // 发布预览需要项目名做来源说明；不落私人路径正文之外的内容。
+        project:z.object({name:z.string().max(200),root:z.string().max(1024)}).optional(),
+      }).strict().parse(a.preview)
       db.prepare('DELETE FROM publish_previews WHERE memory_id=?').run(preview.memoryId)
       db.prepare('INSERT INTO publish_previews(preview_id,memory_id,publish_id,body_hash,created_at,data) VALUES(?,?,?,?,?,?)')
         .run(preview.previewId,preview.memoryId,preview.publishId,preview.bodyHash,Date.now(),JSON.stringify(preview))
@@ -695,6 +713,52 @@ function execute(op: string, input: unknown): unknown {
     })
     case 'preview': {const row=db.prepare('SELECT data FROM publish_previews WHERE preview_id=?').get(str('previewId'));return row?JSON.parse(String(row.data)):null}
     case 'previewDrop': return transaction(()=>{db.prepare('DELETE FROM publish_previews WHERE preview_id=?').run(str('previewId'));return {removed:true}})
+    /**
+     * 确认发布：在同一事务内持久化批准快照、发布映射与 outbox，
+     * 并再次核对源 revision 与正文 hash，防止确认期间源记录被修改。
+     */
+    case 'confirmPreview': return transaction(()=>{
+      const preview=z.object({
+        previewId:z.string().max(128),memoryId:z.string().max(128),publishId:z.string().max(128),
+        bodyHash:z.string().max(128),body:z.string().min(1).max(8000),title:z.string().max(400),
+        sourceRevision:z.number().int().nonnegative(),sourceHash:z.string().max(128),
+        targetKbId:kbIdSchema,connectionId:connectionIdSchema,approvedAt:z.number().int(),
+        project:z.object({name:z.string().max(200),root:z.string().max(1024)}).optional(),
+      }).strict().parse(a.preview)
+      const item=get<MemoryItem>('memory_items',preview.memoryId)
+      if(!item||item.status==='expired')throw new Error('NOT_FOUND')
+      // 源记录在预览后发生变化时必须重新确认，不能沿用旧批准快照。
+      if(item.revision!==preview.sourceRevision)throw new Error('REVISION_CONFLICT')
+      // 正文 hash 与批准快照绑定：确认期间正文被替换即拒绝。
+      if(bodyHashOf(preview.body)!==preview.bodyHash)throw new Error('PREVIEW_HASH_MISMATCH')
+      // 同一记忆已有发布副本时沿用其 publishId，保持远端文档身份稳定。
+      const occupied=db.prepare('SELECT publish_id FROM memory_publications WHERE memory_id=?').get(preview.memoryId) as {publish_id:string}|undefined
+      const publishId=occupied?.publish_id??preview.publishId
+      const existing=publicationRow(publishId)
+      const snapshot:ApprovedSnapshot={title:preview.title,body:preview.body,bodyHash:preview.bodyHash,sourceRevision:preview.sourceRevision,sourceHash:preview.sourceHash,targetKbId:preview.targetKbId,approvedAt:preview.approvedAt}
+      const publication:Publication={
+        publishId,memoryId:preview.memoryId,scope:item.scope,targetKbId:preview.targetKbId,connectionId:preview.connectionId,
+        remoteId:existing?.remoteId??'',state:'approved',
+        publishedSourceRevision:existing?.publishedSourceRevision??0,publishedBodyHash:existing?.publishedBodyHash??'',
+        candidateSourceRevision:preview.sourceRevision,candidateBodyHash:preview.bodyHash,
+        sourceHash:preview.sourceHash,approved:snapshot,remoteVersion:existing?.remoteVersion??'',
+        generation:(existing?.generation??0)+1,approvedAt:preview.approvedAt,lastIndexPollAt:0,indexDeadline:0,
+        error:'',createdAt:existing?.createdAt??Date.now(),updatedAt:Date.now(),
+      }
+      db.prepare('INSERT INTO memory_publications(publish_id,memory_id,target_kb_id,connection_id,state,data) VALUES(?,?,?,?,?,?) ON CONFLICT(publish_id) DO UPDATE SET state=excluded.state,target_kb_id=excluded.target_kb_id,connection_id=excluded.connection_id,data=excluded.data')
+        .run(publication.publishId,publication.memoryId,publication.targetKbId,publication.connectionId,publication.state,JSON.stringify(publication))
+      // 候选修改后撤销尚未发送的过时操作，并抬升 generation。
+      for(const stale of all<OutboxOperation>('sync_outbox').filter(op=>op.publishId===publishId&&op.state==='pending'))storeOutbox({...stale,state:'cancelled'})
+      const operation:OutboxOperation={
+        operationId:randomUUID(),publishId,op:existing?.remoteId?'update':'create',approvedSnapshot:snapshot,
+        attempts:0,nextRetryAt:Date.now(),state:'pending',lastErrorCode:'',generation:publication.generation,
+        createdAt:Date.now(),updatedAt:Date.now(),
+      }
+      storeOutbox(operation)
+      db.prepare('DELETE FROM publish_previews WHERE preview_id=?').run(preview.previewId)
+      audit('publish-confirm',publishId)
+      return {publication,operation}
+    })
     case 'schemaVersion': return SCHEMA_VERSION
     case 'close': db.exec('PRAGMA wal_checkpoint(TRUNCATE)');db.close();return true
     default: throw new Error('UNKNOWN_OPERATION')

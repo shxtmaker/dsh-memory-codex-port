@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { homedir, hostname, userInfo } from 'node:os'
 import { join, basename, resolve } from 'node:path'
 import { realpath } from 'node:fs/promises'
@@ -22,8 +22,13 @@ import { StorageWorker } from './storage/worker-client.ts'
 import { MemoryRemote } from './remote-service.ts'
 import { redact } from './shared.ts'
 import { resolveMemoryRoute } from './model-route.ts'
-import type { Source, Project, MemoryItem, ManageRequest, ManageResult } from './contracts.ts'
+import { WeKnoraClient } from './weknora/client.ts'
+import { KnowledgeService, type KnowledgePort, type KnowledgeLimits, type ResolvedConnection } from './retrieval/evidence.ts'
+import { SyncRunner, type OutboxPort, type LoginAccess, operationMarker } from './publication/sync-outbox.ts'
+import { renderCard, versionDiff, previewKey } from './publication/render.ts'
+import type { Source, Project, MemoryItem, ManageRequest, ManageResult, WeKnoraConnection, ConnectionSettings, ProjectBinding, ExternalEvidence, RemoteRef, Publication, OutboxOperation, RemoteTombstone, ApprovedSnapshot } from './contracts.ts'
 const evidenceMetadata=z.object({epochs:z.record(z.string(),z.number()),items:z.array(z.object({id:z.string(),scope:z.string(),revision:z.number()}))})
+const knowledgeMetadata=z.object({slotId:z.string(),generation:z.number(),refs:z.array(z.object({knowledgeId:z.string(),chunkId:z.string(),title:z.string(),bodyHash:z.string()}))})
 export { Config } from './config.ts'
 export { MemoryRemote } from './remote-service.ts'
 export type { ManageRequest, ManageResult } from './contracts.ts'
@@ -66,18 +71,91 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   let storageAvailable=true
   try {await storage.ready}catch{storageAvailable=false;ctx.logger.warn('dsh-memory: STORAGE_UNAVAILABLE; foreground continues without memory')}
   const projects=new Map<string,Promise<Project>>()
+  /** 已解析的项目身份，供发布预览等非会话路径使用。 */
+  const projectsById=new Map<string,Project>()
   const excluded=new Set<string>()
   const captureCursor=new Map<string,number>()
   const captureTasks=new Set<Promise<unknown>>()
   const pending=new Map<string,Evidence>()
   const toolPending=new Map<string,Evidence>()
+  /** 已提交的知识工具结果：按 toolCallId 记录槽位，供同轮替换与失效撤回使用。 */
+  const toolSlots=new Map<string,{slotId:string;generation:number;refs:RemoteRef[]}>()
   const attemptedTurns=new Map<string,number>()
+  const retiredTurns=new Map<string,number>()
   let stopped=false,policyKey='',policyReady:Promise<unknown>=Promise.resolve()
+  /**
+   * 凭据只在 Host 解析，且每次操作重新解析：页面与日志都不接触密钥正文，
+   * 轮换后下一个操作即生效，不需要重启插件。
+   */
+  const credentialValue=async(ref:string):Promise<string>=>{
+    if(!ref)throw new Error('NOT_CONFIGURED')
+    const credentials=ctx.get('credentials')
+    if(!credentials)throw new Error('NOT_CONFIGURED')
+    const resolved=await credentials.resolve(credentialRef(ref))
+    if(!resolved?.value)throw new Error('NOT_CONFIGURED')
+    return resolved.value
+  }
+  const connectionSnapshot=async(connectionId:string,kind:'read'|'publish'):Promise<ResolvedConnection>=>{
+    const connection=await storage.call<WeKnoraConnection&ConnectionSettings>('connection',{connectionId},undefined)
+    const ref=kind==='read'?connection.readCredentialRef:connection.publishCredentialRef
+    return {connection,apiKey:await credentialValue(ref)}
+  }
+  const clientFor=(access:ResolvedConnection,deadlineMs:number):WeKnoraClient=>new WeKnoraClient({
+    baseUrl:access.connection.baseUrl,apiKey:access.apiKey,tenantId:access.connection.tenantId||undefined,deadlineMs,
+  })
+  /** 每次工具调用读取一次配置快照；运行时不再维护第二份可编辑配置。 */
+  const knowledgeLimits=():KnowledgeLimits=>({
+    matchCount:config.matchCount.get(),vectorThreshold:config.vectorThreshold.get(),
+    keywordThreshold:config.keywordThreshold.get(),requestDeadlineMs:config.requestDeadlineMs.get(),
+    remoteEvidenceBytes:config.remoteEvidenceBytes.get(),retiredReferenceBytes:config.retiredReferenceBytes.get(),
+    maxKnowledgeCallsPerTurn:config.maxKnowledgeCallsPerTurn.get(),
+  })
+  const knowledgePort:KnowledgePort={
+    readAccess:id=>connectionSnapshot(id,'read'),
+    publishAccess:id=>connectionSnapshot(id,'publish'),
+    binding:projectId=>storage.call<ProjectBinding>('binding',{projectId}),
+    reserveSlot:(session,userTurn,toolCallId,createdSeq,connectionId,kbIds,toolName,bindingRevision)=>storage.call<ExternalEvidence>('reserveSlot',{session,userTurn,toolCallId,createdSeq,connectionId,kbIds,toolName,bindingRevision}),
+    slotCheck:(slotId,projectId)=>storage.call<{ok:boolean;code:string}>('slotCheck',{slotId,projectId}),
+    activateSlot:(slotId,resultSeq,contentBytes,refs)=>storage.call<{slot:ExternalEvidence;replaced:string}>('activateSlot',{slotId,resultSeq,contentBytes,refs}),
+    releaseSlot:async(slotId,reason)=>{await storage.call('retireSlot',{slotId,content:`[未提交：${reason}]`,limit:config.retiredReferenceBytes.get()}).catch(()=>{})},
+    retireSlot:(slotId,content,limit)=>storage.call('retireSlot',{slotId,content,limit}).then(()=>undefined),
+    activeSlot:session=>storage.call<ExternalEvidence|null>('activeSlot',{session}),
+    markSlotBuild:async(slotId,build)=>{await storage.call('slotPatch',{slotId,build})},
+    slot:slotId=>storage.call<ExternalEvidence|null>('slot',{slotId}),
+  }
+  const knowledge=new KnowledgeService(knowledgePort,clientFor)
+  const outboxPort:OutboxPort={
+    pending:()=>storage.call<OutboxOperation[]>('outboxPending',{}),
+    publication:publishId=>storage.call<Publication|null>('publication',{publishId}),
+    savePublication:async publication=>{
+      await storage.call('publicationUpsert',{publication})
+      return publication
+    },
+    updateOperation:(operationId,patch)=>storage.call<OutboxOperation>('outboxUpdate',{operationId,...patch}),
+    access:(connectionId)=>connectionSnapshot(connectionId,'publish').then(access=>({apiKey:access.apiKey,tenantId:access.connection.tenantId,baseUrl:access.connection.baseUrl})),
+    client:(access:LoginAccess,deadlineMs)=>new WeKnoraClient({baseUrl:access.baseUrl,apiKey:access.apiKey,tenantId:access.tenantId||undefined,deadlineMs}),
+    tombstonePending:()=>storage.call<RemoteTombstone[]>('tombstonePending',{}),
+    updateTombstone:(tombstone,state,attempts)=>storage.call<RemoteTombstone>('tombstoneUpdate',{connectionId:tombstone.connectionId,kbId:tombstone.kbId,remoteId:tombstone.remoteId,publishId:tombstone.publishId,state,attempts}),
+    isBlocked:async(memoryId,publishId)=>{
+      const tombstone=await storage.call<RemoteTombstone|null>('tombstoneFor',{memoryId,publishId})
+      return !!tombstone
+    },
+    settings:async connectionId=>{const connection=await storage.call<WeKnoraConnection&ConnectionSettings>('connection',{connectionId});return {requestDeadlineMs:connection.requestDeadlineMs}},
+  }
+  const sync=new SyncRunner(outboxPort)
+  let syncTask:Promise<unknown>|undefined
+  /** 后台同步只在发布开关开启且无前台活动时启动；不阻塞任何 awaited 生命周期。 */
+  const startSync=():void=>{
+    if(syncTask||stopped||!config.knowledgePublish.get()||!config.consent.get())return
+    if(ctx.agents.list().some(agent=>agent.status==='running'))return
+    const controller=new AbortController()
+    syncTask=sync.run(controller.signal).catch(()=>undefined).finally(()=>{syncTask=undefined})
+  }
   const projectFor=(session:Session):Promise<Project>=>{
     const cwd=session.header.cwd
     if(!cwd)return Promise.reject(new Error('PROJECT_UNAVAILABLE'))
     let result=projects.get(cwd)
-    if(!result){result=realpath(cwd).then(root=>storage.call<Project>('project',{root:process.platform==='win32'?root.toLowerCase():root,target:trust,name:basename(root)}));projects.set(cwd,result)}
+    if(!result){result=realpath(cwd).then(root=>storage.call<Project>('project',{root:process.platform==='win32'?root.toLowerCase():root,target:trust,name:basename(root)})).then(project=>{projectsById.set(project.id,project);return project});projects.set(cwd,result)}
     return result
   }
   const resolveRoute=()=>resolveMemoryRoute(ctx.llm,{provider:config.provider.get(),model:config.model.get()},async()=>{
@@ -121,11 +199,17 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     },
   })
   function policy():void {
-    const nextKey=JSON.stringify([config.globalUse.get(),config.globalGenerate.get(),config.projectUse.get(),config.projectGenerate.get(),config.consent.get(),config.provider.get(),config.model.get()])
+    const nextKey=JSON.stringify([config.globalUse.get(),config.globalGenerate.get(),config.projectUse.get(),config.projectGenerate.get(),config.consent.get(),config.provider.get(),config.model.get(),config.knowledgeRead.get(),config.knowledgePublish.get()])
     if(nextKey===policyKey)return
+    const previousRead=policyKey?JSON.parse(policyKey)[7]:false
     policyKey=nextKey
     engine.cancel()
     policyReady=policyReady.then(()=>storage.call('policy',{global:{use:config.globalUse.get(),generate:config.globalGenerate.get()&&config.consent.get()},projects:{use:config.projectUse.get(),generate:config.projectGenerate.get()&&config.consent.get()}})).catch(()=>{storageAvailable=false})
+    // 关闭知识检索属于即时失效：在下一次模型请求前撤下相关正文。
+    if(previousRead&&!config.knowledgeRead.get()){
+      for(const session of ctx.sessions.list())void knowledge.invalidate(session.id,'读取已关闭',config.retiredReferenceBytes.get()).catch(()=>{})
+    }
+    if(config.knowledgePublish.get()&&config.consent.get())startSync()
   }
   policy();await policyReady
   ctx.on('loader/volatile-update',policy)
@@ -164,11 +248,80 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     }
   })
   const isWritable=():boolean=>ctx.get('webServer')?.host==='127.0.0.1' && !!ctx.get('configEditor')
+  /** 项目绑定的发布库必须同时出现在只读列表中，否则拒绝保存。 */
+  const bindingView=(binding:ProjectBinding)=>binding
+  /** 发布预览：绑定 memoryId、源 revision、目标库与最终发布正文 hash。 */
+  const buildPreview=async(memoryId:string)=>{
+    const item=await storage.call<MemoryItem>('read',{id:memoryId})
+    if(item.status==='expired')throw new Error('NOT_FOUND')
+    const binding=await storage.call<ProjectBinding|null>('bindingOrNull',{projectId:item.scope})
+    if(!binding?.publishKbId)throw new Error('BINDING_MISSING')
+    const project=projectsById.get(item.scope)
+    const existing=await storage.call<Publication|null>('publicationForMemory',{memoryId})
+    const publishId=existing?.publishId??randomUUID()
+    const approvedAt=Date.now()
+    const card=renderCard({item,project:project?{name:project.name,root:project.root}:undefined,approvedAt})
+    const key=previewKey({memoryId,sourceRevision:item.revision,bodyHash:card.bodyHash,targetKbId:binding.publishKbId})
+    const preview={previewId:randomUUID(),memoryId,publishId,bodyHash:card.bodyHash,body:card.body,title:card.title,
+      sourceRevision:item.revision,sourceHash:item.sources.length?`sources:${item.sources.length}`:'manual',
+      targetKbId:binding.publishKbId,connectionId:binding.connectionId,approvedAt}
+    await storage.call('previewStore',{preview})
+    return {...preview,previewKey:key,marker:operationMarker(publishId),publishMarker:card.marker,
+      targetTitle:binding.publishKbId,existing:existing?{state:existing.state,remoteId:existing.remoteId}:null}
+  }
+  /** 发布记录视图：已发布版本与待复核候选分别显示，不用单一状态覆盖两者。 */
+  const publicationView=(publication:Publication)=>({
+    ...publication,
+    approvedHash:publication.approved?.bodyHash??'',
+    diff:versionDiff(
+      publication.publishedSourceRevision?{sourceRevision:publication.publishedSourceRevision,bodyHash:publication.publishedBodyHash}:null,
+      {sourceRevision:publication.candidateSourceRevision,bodyHash:publication.candidateBodyHash},
+    ),
+  })
   const operation=async(request:ManageRequest,signal:AbortSignal):Promise<ManageResult>=>{
-    const reads=['overview','providers','models','list','read','files','file','job','sources']
+    const reads=['overview','providers','models','list','read','files','file','job','sources','connections','knowledgeBases','binding','publications','preview']
     if(!reads.includes(request.action)&&!isWritable())throw new Error('READ_ONLY_CONNECTION')
     await policyReady
     if(request.action==='providers')return {json:JSON.stringify(ctx.llm.listProviders().map(({id,name})=>({id,name})))}
+    /* ── WeKnora 连接与项目绑定 ───────────────────────────────────── */
+    if(request.action==='connections')return {json:JSON.stringify(await storage.call('connections',{},signal))}
+    if(request.action==='knowledgeBases'){
+      if(!request.connection)throw new Error('NOT_CONFIGURED')
+      try {
+        const access=await connectionSnapshot(request.connection.connectionId,'read')
+        const probe=await clientFor(access,config.requestDeadlineMs.get()).probe(signal)
+        return {json:JSON.stringify({ok:true,code:'OK',message:'',bases:probe.knowledgeBases.map(base=>({id:base.id,name:base.name,type:base.type})),version:probe.version})}
+      } catch(error){
+        // 失败必须回传可诊断代码，不能显示为空列表。
+        const code=error instanceof Error&&/^[A-Z_]+$/.test(error.message)?error.message:'UPSTREAM'
+        return {json:JSON.stringify({ok:false,code,message:`知识库列表读取失败：${code}`,bases:[],version:null})}
+      }
+    }
+    if(request.action==='binding'){
+      const scope=request.scope??''
+      if(!scope)throw new Error('SCOPE_DENIED')
+      return {json:JSON.stringify(await storage.call('bindingOrNull',{projectId:scope},signal))}
+    }
+    if(request.action==='publications'){
+      const list=await storage.call<Publication[]>('publications',{},signal)
+      const filtered=request.scope?list.filter(item=>item.scope===request.scope):list
+      const outbox=await storage.call<OutboxOperation[]>('outbox',{},signal)
+      const tombstones=await storage.call<RemoteTombstone[]>('tombstones',{},signal)
+      return {json:JSON.stringify({
+        publications:filtered.map(publication=>{
+          // 队列错误与发布记录一起返回，页面无需再取一次。
+          const operations=outbox.filter(op=>op.publishId===publication.publishId).sort((a,b)=>b.attempts-a.attempts)
+          const latest=operations[0]
+          return {...publicationView(publication),lastErrorCode:latest?.lastErrorCode??'',attempts:latest?.attempts??0,outboxState:latest?.state??''}
+        }),
+        outbox:outbox.filter(op=>filtered.some(item=>item.publishId===op.publishId)),
+        tombstones:tombstones.filter(item=>filtered.some(pub=>pub.publishId===item.publishId)),
+      })}
+    }
+    if(request.action==='preview'){
+      if(!request.id)throw new Error('NOT_FOUND')
+      return {json:JSON.stringify(await buildPreview(request.id))}
+    }
     if(request.action==='models'){
       if(!ctx.llm.listProviders().some(p=>p.id===request.provider))throw new Error('PROVIDER_UNAVAILABLE')
       const models=await ctx.llm.listModels(request.provider!)
@@ -179,6 +332,57 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     if(!isWritable()&&request.sessionId){const session=ctx.sessions.get(SessionId(request.sessionId));if(session&&!session.header.origin)scopes.push((await projectFor(session)).id)}
     if(!isWritable() && request.scope && !scopes.includes(request.scope))throw new Error('SCOPE_DENIED')
     if(request.action==='clear'){await Promise.allSettled([...captureTasks]);for(const session of ctx.sessions.list())scheduleCapture(session,Number(session.seq)-1);await Promise.allSettled([...captureTasks]);engine.cancel()}
+    /* ── 连接、绑定与发布的写操作 ─────────────────────────────────── */
+    if(request.action==='connection'){
+      if(!request.connection)throw new Error('BAD_REQUEST')
+      return {json:JSON.stringify(await storage.call('saveConnection',{connection:request.connection},signal))}
+    }
+    if(request.action==='knowRemove'){
+      if(!request.connection)throw new Error('BAD_REQUEST')
+      // 删除连接前先撤回该连接上所有活动证据，避免留下无法核对的正文。
+      for(const session of ctx.sessions.list())await knowledge.invalidate(session.id,'连接已删除',config.retiredReferenceBytes.get()).catch(()=>{})
+      return {json:JSON.stringify(await storage.call('removeConnection',{connectionId:request.connection.connectionId},signal))}
+    }
+    if(request.action==='knowToggle'){
+      if(!request.connection)throw new Error('BAD_REQUEST')
+      const connection=await storage.call<WeKnoraConnection>('connection',{connectionId:request.connection.connectionId},signal)
+      const wantRead=typeof request.use==='boolean'?request.use:connection.readEnabled
+      const wantPublish=typeof request.generate==='boolean'?request.generate:connection.publishEnabled
+      const toggled=await storage.call<WeKnoraConnection>('toggleConnection',{connectionId:request.connection.connectionId,readEnabled:wantRead,publishEnabled:wantPublish},signal)
+      // 关闭读取属于即时失效：在下一次模型请求前撤下相关正文。
+      if(connection.readEnabled&&!wantRead)for(const session of ctx.sessions.list())await knowledge.invalidate(session.id,'连接读取已关闭',config.retiredReferenceBytes.get()).catch(()=>{})
+      if(wantPublish)startSync()
+      return {json:JSON.stringify(toggled)}
+    }
+    if(request.action==='knowSave'){
+      const scope=request.scope??''
+      if(!scope||!request.binding)throw new Error('BAD_REQUEST')
+      return {json:JSON.stringify(bindingView(await storage.call<ProjectBinding>('setBinding',{projectId:scope,binding:request.binding},signal)))}
+    }
+    if(request.action==='publishConfirm'){
+      if(!request.previewId)throw new Error('NOT_FOUND')
+      const preview=await storage.call<{previewId:string;memoryId:string;publishId:string;bodyHash:string;body:string;title:string;sourceRevision:number;sourceHash:string;targetKbId:string;connectionId:string;approvedAt:number}|null>('preview',{previewId:request.previewId},signal)
+      if(!preview)throw new Error('NOT_FOUND')
+      const result=await storage.call<{publication:Publication;operation:OutboxOperation}>('confirmPreview',{preview},signal)
+      return {json:JSON.stringify(publicationView(result.publication))}
+    }
+    if(request.action==='withdrawRecall'){
+      // 页面传 publishId；本地经验不被删除，只撤回共享副本。
+      if(!request.id)throw new Error('NOT_FOUND')
+      const publication=await storage.call<Publication|null>('publication',{publishId:request.id},signal)
+      if(!publication)throw new Error('NOT_FOUND')
+      await storage.call('publicationUpsert',{publication:{...publication,state:'withdraw_queued',approved:null}},signal)
+      const tombstone=await storage.call<RemoteTombstone>('tombstoneAdd',{tombstone:{connectionId:publication.connectionId,kbId:publication.targetKbId,remoteId:publication.remoteId,publishId:publication.publishId,memoryId:publication.memoryId,sourceEpoch:0}},signal)
+      // 撤回同时撤下本机活动证据，删除期间本机不重生。
+      for(const session of ctx.sessions.list())await knowledge.invalidate(session.id,'发布已撤回',config.retiredReferenceBytes.get()).catch(()=>{})
+      if(config.knowledgePublish.get())startSync()
+      return {json:JSON.stringify({queued:tombstone.state!=='done',tombstone})}
+    }
+    if(request.action==='syncNow'){
+      const controller=new AbortController()
+      const result=await sync.run(controller.signal)
+      return {json:JSON.stringify(result)}
+    }
     const {action,...args}=request
     let result=await storage.call(action,action==='overview'?{...args,...(!isWritable()?{usageScopes:scopes}:{})}:args,signal)
     if(action==='overview'){
@@ -223,7 +427,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const alreadyAttempted=attemptedTurns.get(payload.agent.id)===payload.turn
     attemptedTurns.set(payload.agent.id,payload.turn)
     const evidence=await withinDeadline(payload.signal,async signal=>{
-      await policyReady;signal.throwIfAborted();await withdraw(payload.agent,signal)
+      await policyReady;signal.throwIfAborted()
+      // 常规到期在下一用户轮入口处理一次，不在每个 agent step 清理。
+      const turn=payload.turn
+      if(retiredTurns.get(payload.agent.id)!==turn){
+        retiredTurns.set(payload.agent.id,turn)
+        void knowledge.retireOnNewTurn(payload.agent.id,config.retiredReferenceBytes.get()).catch(()=>{})
+        toolSlots.clear()
+      }
+      await withdraw(payload.agent,signal)
       if(alreadyAttempted)return null
       const query=decision.messages.filter(m=>m.source.kind==='user').map(m=>typeof m.content==='string'?m.content:m.content.filter(b=>b.type==='text').map(b=>b.text).join('\n')).join('\n')
       if(!query||excluded.has(payload.agent.id))return null
@@ -239,9 +451,28 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return decision
   })
   ctx.systemPrompt.section({name:'dsh-memory-policy',order:90,text:POLICY,interpolate:false})
-  ctx.tools.register({...MEMORY_TOOL,output:{schema:{type:'object',properties:{text:{type:'string'},evidence:{type:'object',additionalProperties:true}},required:['text'],additionalProperties:false},presentationMeta:(_args,value)=>({memoryEvidence:z.object({evidence:evidenceMetadata.optional()}).parse(value).evidence??{epochs:{},items:[]}}),render:(_args,value)=>[{type:'text',text:z.object({text:z.string()}).parse(value).text}]},execute:async(args,exec)=>{
-    const input=z.object({action:z.enum(['search','read']),query:z.string().max(1000).optional(),id:z.string().optional()}).strict().parse(args)
+  ctx.tools.register({...MEMORY_TOOL,output:{schema:{type:'object',properties:{text:{type:'string'},evidence:{type:'object',additionalProperties:true}},required:['text'],additionalProperties:false},presentationMeta:(_args,value)=>{
+      const parsed=z.object({evidence:evidenceMetadata.optional(),knowledgeEvidence:knowledgeMetadata.optional()}).parse(value)
+      // JsonValue 不接受 undefined：缺失的键必须整个省略。
+      return {...(parsed.evidence?{memoryEvidence:parsed.evidence}:{memoryEvidence:{epochs:{},items:[]}}),...(parsed.knowledgeEvidence?{knowledgeEvidence:parsed.knowledgeEvidence}:{})}
+    },render:(_args,value)=>[{type:'text',text:z.object({text:z.string()}).parse(value).text}]},execute:async(args,exec)=>{
+    const input=z.object({action:z.enum(['search','read']),source:z.enum(['local','knowledge']).default('local'),query:z.string().max(1000).optional(),id:z.string().optional(),cursor:z.number().int().nonnegative().optional()}).strict().parse(args)
     if(!exec.agent||exec.rootCallId!==exec.callId||excluded.has(exec.agent.id)||exec.agent.session.header.origin==='subagent')return {text:''}
+    // 知识来源需要同时满足总开关与连接级读取开关；默认关闭。
+    if(input.source==='knowledge'){
+      if(!config.knowledgeRead.get())return {text:'知识检索未开启。',knowledgeEvidence:undefined}
+      try {
+        await policyReady
+        const project=await projectFor(exec.agent.session)
+        const session=exec.agent.id,userTurn=attemptedTurns.get(session)??0
+        const reply=input.action==='read'
+          ? await knowledge.read({sessionId:session,projectId:project.id,userTurn,toolCallId:exec.callId,createdSeq:Number(exec.agent.session.seq),knowledgeId:input.id??'',cursor:input.cursor??1,caller:exec.signal},knowledgeLimits())
+          : await knowledge.search({sessionId:session,projectId:project.id,userTurn,toolCallId:exec.callId,createdSeq:Number(exec.agent.session.seq),query:input.query??'',caller:exec.signal},knowledgeLimits())
+        if(!reply.outcome.ok&&!reply.text)return {text:''}
+        toolSlots.set(exec.callId,{slotId:reply.slotId,generation:reply.slotId?1:0,refs:reply.refs})
+        return {text:reply.text,knowledgeEvidence:reply.slotId?{slotId:reply.slotId,generation:1,refs:reply.refs.map(ref=>({knowledgeId:ref.knowledgeId,chunkId:ref.chunkId,title:ref.title,bodyHash:ref.bodyHash}))}:undefined}
+      } catch { return {text:''} }
+    }
     try {await policyReady;const project=await projectFor(exec.agent.session);const evidence=await engine.retrieve(exec.agent.id,project.id,input.query??'',input.action==='read'?input.id:undefined,exec.signal);if(!evidence)return {text:''};toolPending.set(exec.callId,evidence);return {text:evidence.text,evidence:{epochs:evidence.epochs,items:evidence.records.map(i=>({id:i.id,revision:i.revision,scope:i.scope}))}}}catch{return {text:''}}
   }})
   ctx.commands.register({name:'memory',description:'管理记忆；note 保存人工记忆；off 停止本会话读取与贡献。',recordInput:false,input:{hint:'note <文本> / off'},handler:async({agent,rawInput,signal})=>{

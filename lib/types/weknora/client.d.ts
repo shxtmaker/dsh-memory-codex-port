@@ -91,6 +91,16 @@ export declare class WeKnoraError extends Error {
     readonly remoteCode: string;
     constructor(code: WeKnoraErrorCode, status?: number, remoteCode?: string);
 }
+/**
+ * 结构化的错误判定。
+ *
+ * 每个入口由 esbuild 独立打包，`client.ts` 会被内联进 index/evidence/sync-outbox，
+ * 因此 `instanceof WeKnoraError` 跨模块恒为 false。这里按固定代码集合判定，
+ * 保证适配器错误在任何模块组合下都能被正确识别。
+ */
+export declare function isWeKnoraError(error: unknown): error is WeKnoraError;
+/** 取固定错误代码；非适配器错误返回 null。 */
+export declare function weknoraCode(error: unknown): WeKnoraErrorCode | null;
 /** 手工正文上限为 200000 个字符（rune）；本地先拒绝，避免无谓往返。 */
 export declare const MANUAL_CONTENT_MAX = 200000;
 /** custom_metadata 上限：20 个键、键名 ≤64、值 ≤1000。 */
@@ -153,6 +163,14 @@ export declare class WeKnoraClient {
     hybridSearch(kbId: string, params: HybridSearchParams, signal?: AbortSignal): Promise<SearchHit[]>;
     /** 文档状态与手工正文；用于父库校验和发布版本核对。 */
     getKnowledge(knowledgeId: string, signal?: AbortSignal): Promise<KnowledgeDetail>;
+    /**
+     * 列出知识库中的文档。用于创建响应丢失后按稳定标记对账：
+     * 只能按标记与正文精确确认唯一匹配，禁止盲目重发创建。
+     */
+    listKnowledge(kbId: string, page: number, pageSize: number, signal?: AbortSignal): Promise<{
+        total: number;
+        items: KnowledgeDetail[];
+    }>;
     private toDetail;
     /**
      * 按 chunk_index 原序分页读取分块。页大小上限 100（handler 自行钳制）。
