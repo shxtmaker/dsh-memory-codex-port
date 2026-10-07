@@ -101,6 +101,21 @@ T3 整条链路实际不可用。已在 `client.ts` 修正并加回归用例
 普通任务输入 tokens 增幅 ≤ 5%），需同模型同起始上下文的真实模型样本，
 本轮未采集，标注为**未执行**而不是通过。
 
+## 远端推送（2026-10-08，用户授权）
+
+| 项目 | 值 |
+|---|---|
+| 远端 | `https://github.com/shxtmaker/dsh-memory-codex-port` |
+| 推送前 origin/main | `ced6134`（0.2.1） |
+| 推送后 origin/main | `cbc441a943b40e6ed3507926ae0cd6edd6cd763c` |
+| 本次提交数 | 11（`b3a591a` … `cbc441a`），快进推送，无强推、无历史重写 |
+| 标签 | `V0.3.0`（注解标签 `7b671778`，指向 `cbc441a`） |
+| 远端 `ls-remote` 独立核对 | refs/heads/main 与 refs/tags/V0.3.0 均与本地一致 |
+| 远端分发包核对 | 从 `raw.githubusercontent.com` 下载的 tgz SHA256 = `878029c03807e596f01d7870c83807562c16ba64474918bb6a12179e1380e7c0`，与本地逐字节一致 |
+| 远端 Git 安装 | `github:shxtmaker/dsh-memory-codex-port#V0.3.0` 隔离安装成功：组合包生效、版本 0.3.0、入口文件齐备，未退化为普通依赖 |
+
+推送凭据仅通过环境变量传入 git credential helper，未写入仓库、未落盘、未记入本文件。
+
 ## 下一步可执行动作
 
 1. 采集 T2 成本对照样本（同模型、同起始上下文），补齐唯一未执行项。
@@ -108,4 +123,4 @@ T3 整条链路实际不可用。已在 `client.ts` 修正并加回归用例
    `consolidateBatchSources`/`consolidateBatchBytes` 初值（当前为方案初值）。
 3. 在用户日常 profile 安装 `dist/dsh-memory-local-0.3.0.tgz` 并完整重启 Host，
    由用户本人确认「设置 → 记忆」的知识库配置与发布预览交互。
-4. 按用户授权决定是否推送远端与发布标签。
+4. 远端已推送（main + V0.3.0）；如需 GitHub Release 附件，可在网页端以已推送的 tgz 创建。
