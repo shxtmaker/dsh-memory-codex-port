@@ -17,7 +17,7 @@ import type {} from '@deepseek-ai/dsh-settings'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { z } from 'zod'
 import { Config } from './config.ts'
-import { MemoryEngine, ModelCallError, withinDeadline, POLICY, MEMORY_TOOL, type Evidence } from './engine.ts'
+import { MemoryEngine, ModelCallError, withinDeadline, POLICY, MEMORY_TOOL, LOCAL_DEADLINE_MS, type Evidence } from './engine.ts'
 import { StorageWorker } from './storage/worker-client.ts'
 import { MemoryRemote } from './remote-service.ts'
 import { redact } from './shared.ts'
@@ -175,6 +175,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // 整理输入有界：每批最多 N 个变化来源与 M 字节，未纳入的变化顺延。
     consolidateBatchSources:()=>config.consolidateBatchSources.get(),
     consolidateBatchBytes:()=>config.consolidateBatchBytes.get(),
+    // 前台本地链路截止沿用既有 150ms 兜底；不可用则直接继续。
+    localDeadlineMs:()=>LOCAL_DEADLINE_MS,
     routeAllowed:route=>(!config.provider.get()&&!config.model.get())||(config.provider.get()===route.provider&&config.model.get()===route.model),
     readSource:async(source,signal)=>{
       const live=ctx.sessions.get(SessionId(source.sessionId))

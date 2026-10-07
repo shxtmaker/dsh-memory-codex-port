@@ -1,6 +1,6 @@
 {
   "name": "dsh-memory-local",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "DeepSeek Harness 本机双阶段记忆与管理页面",
   "private": true,
   "type": "module",
@@ -35,7 +35,9 @@
     "ACCEPTANCE.md",
     "IMPLEMENTATION_STATUS.md",
     "LICENSE",
-    "THIRD_PARTY_NOTICES.md"
+    "THIRD_PARTY_NOTICES.md",
+    "PROGRESS.md",
+    "docs"
   ],
   "dsh": {
     "engines": {

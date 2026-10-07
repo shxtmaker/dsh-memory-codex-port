@@ -28,14 +28,17 @@ async function fixture({existing=true}={}){
   return {root,store,project,other}
 }
 function engineFor(store,overrides={}) {
+  // 默认保持生产策略 150ms；需要断言内容而不与墙上时钟竞争的用例显式传入 localDeadlineMs。
   return new MemoryEngine(store,{consent:()=>true,route:()=>({provider:'FIXTURE',model:'FIXED'}),idleMs:()=>0,intervalMs:()=>0,outputLimit:()=>1024,foregroundBusy:()=>false,readSource:async()=>{throw Error('SOURCE_MISSING')},model:async()=>{throw Error('MODEL_MISSING')},...overrides})
 }
 const facts=[{scope:'global',kind:'preference',title:'中文沟通',content:'始终使用中文沟通。',status:'observed',source_refs:[0]},{scope:'project',kind:'decision',title:'SQLite Worker',content:'数据库操作放在 SQLite Worker 中。',status:'observed',source_refs:[0]}]
+/** 内容断言用宽松截止；150ms 生产策略由 A4 单独测量，两者不互相干扰。 */
+const CONTENT_DEADLINE=()=>5000
 async function pipeline(f,extra={}) {
   const text=JSON.stringify([{seq:0,role:'user',text:'请用中文；数据库操作放在 SQLite Worker 中。'}])
   const source={id:randomUUID(),sessionId:randomUUID(),project:f.project.id,start:0,end:0,hash:digest(text),updatedAt:Date.now(),excluded:false}
   const calls=[]
-  const engine=engineFor(f.store,{readSource:async()=>text,model:async prompt=>{
+  const engine=engineFor(f.store,{localDeadlineMs:CONTENT_DEADLINE,readSource:async()=>text,model:async prompt=>{
     calls.push(prompt)
     if(prompt.startsWith('只输出 JSON：{"raw_memory"'))return {text:JSON.stringify({raw_memory:'项目细节不进入全局快照。',rollout_summary:'用户确认 SQLite Worker。',rollout_slug:'sqlite-worker',items:facts}),usage:100}
     const input=JSON.parse(prompt.split('\n').at(-1))
@@ -51,7 +54,12 @@ test('A2 固定模型闭环、全局/项目隔离、增量差异和重启',async
     assert.equal(p.calls.length,3);assert.equal((await f.store.call('overview',{})).dailyUsage.tokens,300)
     const global=await f.store.call('list',{scope:'global'}),local=await f.store.call('list',{scope:f.project.id})
     assert.equal(global.length,1);assert.equal(local.length,1)
-    const evidence=await engine.recall('new-session',f.project.id,'SQLite 中文',1,signal());assert(evidence);assert(evidence.text.includes('SQLite Worker'));assert(evidence.text.includes('中文沟通'))
+    // 本用例断言召回内容，不断言墙上时钟：并发负载下 SQLite 往返会偶发超过
+    // 150ms 硬截止，而 recall 会按设计放行主流程并返回 null。150ms 截止与晚到回收
+    // 由 A4 用专门用例测量，此处用宽松截止把两者解耦。
+    const evidence=await engine.recall('new-session',f.project.id,'SQLite 中文',1,signal())
+    assert(evidence,'本地召回应返回证据（150ms 截止由 A4 单独测量）')
+    assert(evidence.text.includes('SQLite Worker'));assert(evidence.text.includes('中文沟通'))
     await engine.settle(evidence.id,'native-log:1')
     const foreign=await engine.retrieve('B-session',f.other.id,'SQLite',local[0].id,signal());assert.equal(foreign,null)
     assert.deepEqual(await f.store.call('search',{scopes:[f.other.id],query:'SQLite'}),[])

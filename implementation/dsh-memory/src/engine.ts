@@ -30,17 +30,24 @@ export interface EngineOptions {
   /** 单批整理的最多变化来源数与输入 UTF-8 字节上限；省略时使用首版默认值。 */
   consolidateBatchSources?: () => number
   consolidateBatchBytes?: () => number
+  /**
+   * 前台本地链路的截止毫秒数；省略时为 150ms。
+   * 这是策略值，生产默认不变；测试可用它把内容断言与墙上时钟解耦。
+   */
+  localDeadlineMs?: () => number
   routeAllowed?: (route:ModelRoute) => boolean
   readSource: (source: Source, signal: AbortSignal) => Promise<string>
   model: (prompt: string, maxOutput: number, signal: AbortSignal, route:ModelRoute) => Promise<ModelReply>
 }
 export interface Evidence { id: string; session:string; text: string; cost: number; records: MemoryItem[]; epochs: Record<string,number> }
+/** 本地链路默认截止；这是前台预算策略值，可通过参数覆盖但生产默认保持不变。 */
+export const LOCAL_DEADLINE_MS=150
 /** 截止覆盖整个前台插件链；晚到分支只能释放资源。 */
-export async function withinDeadline<T>(caller:AbortSignal, work:(signal:AbortSignal)=>Promise<T>, late:(value:T)=>void=()=>{}, unavailable:()=>void=()=>{}):Promise<T|null> {
+export async function withinDeadline<T>(caller:AbortSignal, work:(signal:AbortSignal)=>Promise<T>, late:(value:T)=>void=()=>{}, unavailable:()=>void=()=>{}, deadlineMs:number=LOCAL_DEADLINE_MS):Promise<T|null> {
   const controller=new AbortController(),signal=AbortSignal.any([caller,controller.signal])
   let done=false,timer:ReturnType<typeof setTimeout>|undefined
   const task=work(signal).catch(()=>{unavailable();return null}).finally(()=>{done=true})
-  const timeout=new Promise<null>(resolve=>{timer=setTimeout(()=>{controller.abort();unavailable();resolve(null)},150)})
+  const timeout=new Promise<null>(resolve=>{timer=setTimeout(()=>{controller.abort();unavailable();resolve(null)},deadlineMs)})
   const result=await Promise.race([task,timeout]);if(timer)clearTimeout(timer)
   if(!done){controller.abort();void task.then(value=>{if(value!==null)late(value)})}
   return result
@@ -62,6 +69,7 @@ export class MemoryEngine {
     return this.retrieve(session,project,query,undefined,caller)
   }
   async retrieve(session:string,project:string,query:string,id:string|undefined,caller:AbortSignal):Promise<Evidence|null> {
+    const deadline=this.options.localDeadlineMs?.()??LOCAL_DEADLINE_MS
     const started=performance.now(),controller=new AbortController(),signal=AbortSignal.any([caller,controller.signal])
     let reservation:Evidence|null=null,finished=false
     const task=(async()=>{
@@ -69,15 +77,15 @@ export class MemoryEngine {
         let candidates:MemoryItem[]
         if(id){const item=await this.storage.call<MemoryItem>('read',{id},signal);if(!['global',project].includes(item.scope))throw new Error('SCOPE_DENIED');candidates=[item]}
         else candidates=await this.storage.call<MemoryItem[]>('search',{scopes:['global',project],query},signal)
-        if(signal.aborted || performance.now()-started>=150)return null
+        if(signal.aborted || performance.now()-started>=deadline)return null
         reservation=await this.storage.call<Evidence|null>('reserveEvidence',{session,ids:candidates.map(i=>i.id),limit:1024},signal)
-        if(signal.aborted || performance.now()-started>=150){if(reservation)await this.release(reservation.id);return null}
+        if(signal.aborted || performance.now()-started>=deadline){if(reservation)await this.release(reservation.id);return null}
         if(reservation && !await this.storage.call<boolean>('checkEvidence',{id:reservation.id},signal)){await this.release(reservation.id);return null}
         return reservation
       }catch {return null} finally{finished=true}
     })()
     let timer:ReturnType<typeof setTimeout>|undefined
-    const timeout=new Promise<null>(resolve=>{timer=setTimeout(()=>{controller.abort();resolve(null)},150)})
+    const timeout=new Promise<null>(resolve=>{timer=setTimeout(()=>{controller.abort();resolve(null)},deadline)})
     const result=await Promise.race([task,timeout])
     if(timer)clearTimeout(timer)
     if(!finished){controller.abort();void task.then(late=>{if(late)void this.release(late.id)})}

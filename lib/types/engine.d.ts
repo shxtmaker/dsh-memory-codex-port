@@ -22,6 +22,11 @@ export interface EngineOptions {
     /** 单批整理的最多变化来源数与输入 UTF-8 字节上限；省略时使用首版默认值。 */
     consolidateBatchSources?: () => number;
     consolidateBatchBytes?: () => number;
+    /**
+     * 前台本地链路的截止毫秒数；省略时为 150ms。
+     * 这是策略值，生产默认不变；测试可用它把内容断言与墙上时钟解耦。
+     */
+    localDeadlineMs?: () => number;
     routeAllowed?: (route: ModelRoute) => boolean;
     readSource: (source: Source, signal: AbortSignal) => Promise<string>;
     model: (prompt: string, maxOutput: number, signal: AbortSignal, route: ModelRoute) => Promise<ModelReply>;
@@ -34,8 +39,10 @@ export interface Evidence {
     records: MemoryItem[];
     epochs: Record<string, number>;
 }
+/** 本地链路默认截止；这是前台预算策略值，可通过参数覆盖但生产默认保持不变。 */
+export declare const LOCAL_DEADLINE_MS = 150;
 /** 截止覆盖整个前台插件链；晚到分支只能释放资源。 */
-export declare function withinDeadline<T>(caller: AbortSignal, work: (signal: AbortSignal) => Promise<T>, late?: (value: T) => void, unavailable?: () => void): Promise<T | null>;
+export declare function withinDeadline<T>(caller: AbortSignal, work: (signal: AbortSignal) => Promise<T>, late?: (value: T) => void, unavailable?: () => void, deadlineMs?: number): Promise<T | null>;
 /** 双阶段管线和前台召回协调器；后台并发固定为一。 */
 export declare class MemoryEngine {
     readonly storage: StorageWorker;
