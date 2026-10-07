@@ -107,7 +107,10 @@ try{
   assert.equal(calls.filter(p=>p.startsWith('只输出 JSON：{"raw_memory"')).length,1)
   assert.equal(calls.filter(p=>p.startsWith('只输出 JSON：{"changes"')).length,1)
   if(reasoningRegression)assert.deepEqual(backgroundConfigs,[{reasoningEffort:'off',maxTokens:1024},{reasoningEffort:'off',maxTokens:1024}])
-  const project=(await overview()).projects.find(p=>p.root===cwd.toLowerCase())
+  // 项目身份按主机 realpath 记录；此处只归一化路径分隔符，不改变大小写语义。
+  const normalize=value=>value.replace(/\\/g,'/')
+  const project=(await overview()).projects.find(p=>normalize(p.root)===normalize(cwd))
+  assert(project,'概览必须能按工作目录解析出项目身份')
   const items=JSON.parse((await ctx.memory.invoke({action:'list',scope:project.id},new AbortController().signal)).json)
   assert.equal(items.length,1)
   if(consolidationContract){
