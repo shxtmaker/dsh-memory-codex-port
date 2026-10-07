@@ -62,7 +62,8 @@
     "test": "node --test tests/acceptance.test.mjs tests/production-source.mjs tests/background-routing.mjs tests/model-route.test.mjs tests/official-default.mjs tests/usage-statistics.test.mjs tests/git-install.test.mjs tests/weknora-storage.test.mjs tests/weknora-contract.test.mjs tests/weknora-lifecycle.test.mjs tests/weknora-batching.test.mjs tests/retrieval-router.test.mjs tests/publication-render.test.mjs tests/weknora-host.test.mjs",
     "test:host": "node tests/host.mjs",
     "test:web": "node tests/web.mjs",
-    "pack:local": "npm pack --pack-destination artifacts"
+    "pack:local": "npm pack --pack-destination artifacts",
+    "test:t1": "node tests/t1-install.mjs"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.4",

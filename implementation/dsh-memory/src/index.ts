@@ -340,6 +340,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     /* ── 连接、绑定与发布的写操作 ─────────────────────────────────── */
     if(request.action==='connection'){
       if(!request.connection)throw new Error('BAD_REQUEST')
+      // 保存连接必须给出地址；引用已有连接（切换开关、删除）只需 connectionId。
+      if(!request.connection.baseUrl)throw new Error('BAD_REQUEST')
       return {json:JSON.stringify(await storage.call('saveConnection',{connection:request.connection},signal))}
     }
     if(request.action==='knowRemove'){

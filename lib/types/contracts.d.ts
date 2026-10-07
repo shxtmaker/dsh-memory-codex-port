@@ -22,10 +22,14 @@ export interface ManageRequest {
     previewId?: string;
     publishId?: string;
 }
-/** 管理页提交的连接设置；密钥不在此结构中传输。 */
+/**
+ * 连接设置。同一个结构既用于「保存连接」也用于「引用已有连接」：
+ * 保存时必须给出 baseUrl（由存储层强制校验），切换开关或删除时只需 connectionId。
+ * 因此 baseUrl 在此为可选；权威校验在 storage 的 saveConnection 内完成。
+ */
 export interface ConnectionInput {
     connectionId: string;
-    baseUrl: string;
+    baseUrl?: string;
     apiProfile?: string;
     tenantId?: string;
     readCredentialRef?: string;

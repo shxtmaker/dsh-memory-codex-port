@@ -1,1 +1,1 @@
-8ef8bbd6517681ccfc33045633a2512a87a0ac10c4874502e4ab0a6abd2d087d  dsh-memory-local-0.3.0.tgz
+12713e56ad909ff3a734e0c5bcb1c8fc2782b6a9029b6699849adca28b439544  dsh-memory-local-0.3.0.tgz

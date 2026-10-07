@@ -37,9 +37,11 @@
 | 旧库升级到 schema 2 | 通过 | `tests/weknora-storage.test.mjs`「真实 v1 库升级到 schema 2」：既有 `memory_items`、来源、墓碑、用量与 epoch 全部保持；新表按需可用 |
 | 升级后默认不扩大权限 | 通过 | 同上：连接列表为空、发布为空、墓碑为空；连接 `readEnabled`/`publishEnabled` 默认 false |
 | 更新结构拒绝启动 | 通过 | 同文件「结构版本高于本版本时拒绝启动」：`STORAGE_UNAVAILABLE`，不误读更新结构 |
-| 打包一致性 | 通过 | `node scripts/release.mjs`：根/子包 name、version、`dsh.bundle`、`dsh.engines.dsh`、client inject 与补丁字节一致；tgz 内 46 个文件与工作区逐字节一致 |
-| 设置页可用（真实 Host） | 未执行（本轮未重启真实 Host） | 需用户在测试 profile 安装后打开「设置 → 记忆」确认 |
-| 重启后数据与模型配置保留 | 未执行 | 同上；既有 0.1.9/0.2.x 证据不适用于 0.3.0 |
+| 打包一致性 | 通过 | `node scripts/release.mjs`：根/子包 name、version、`dsh.bundle`、`dsh.engines.dsh`、client inject 与补丁字节一致；tgz 内 99 个文件与工作区逐字节一致 |
+| 设置页可用（真实 Host） | 通过 | `node tests/t1-install.mjs`：隔离 profile 安装 tgz → loopback Host → 「设置 → 记忆」渲染，知识库区块可见，页面未捕获错误 0 |
+| 重启后数据与模型配置保留 | 通过 | 同上：重启后人工记忆与连接设置均保留 |
+| 连接列表与开关 | 通过 | 同上：保存连接后列表可见（不含密钥正文字段）；读取与发布开关互相独立 |
+| 默认权限不扩大（运行态） | 通过 | 同上：知识读取与发布默认关闭；预算 1024/3072/256/4096 字节 |
 
 通过条件核对：**可安装**（打包与逐文件一致性通过）、**原有记录不丢失**（升级用例通过）、
 **默认权限不扩大**（新表默认关闭）、**项目记录不串用**（A2 隔离用例通过）、

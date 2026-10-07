@@ -23,6 +23,7 @@ export const copy={
   remoteSlot:'远端活动槽位',retiredRefs:'退役短引用',maxTotal:'直接证据合计上限',estimateNote:'界面显示的是字节占用；估算 tokens 与供应商实际 usage 单独统计，两者不可互换。',
   consolidationBatchHelp:'整理输入按来源数与 UTF-8 字节双上限分批；未纳入本批的变化顺延到下一批，不会被标记为已完成。',
   pendingSources:'待处理来源顺延',
+  kbOperation:'操作',
   usageHelp:'每次提炼、整理和重试分别按供应商返回的总 tokens 计量。',todayUsed:'今日已使用',loadingUsage:'正在加载用量统计…',
   unknownUsageCalls:'另有 {count} 次调用未返回用量，未计入合计。',
   latestEvidence:'最新会话计量',latestExtract:'最新 extract 状态',showEvidenceHistory:'展开会话计量历史',showJobHistory:'展开后台任务历史',collapseHistory:'收起历史',

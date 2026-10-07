@@ -17,6 +17,10 @@ interface ConnectionView {connectionId:string;baseUrl:string;apiProfile:string;t
 interface BindingView {localProjectId:string;connectionId:string;readKbIds:string[];publishKbId:string;bindingRevision:number;updatedAt:number}
 interface PreviewView {previewId:string;memoryId:string;publishId:string;title:string;body:string;bodyHash:string;sourceRevision:number;sourceHash:string;targetKbId:string;connectionId:string;publishMarker:string;targetTitle:string;approvedAt?:number}
 interface PublicationView {publishId:string;memoryId:string;scope:string;targetKbId:string;state:string;publishedSourceRevision:number;publishedBodyHash:string;candidateSourceRevision:number;candidateBodyHash:string;remoteId:string;remoteVersion:string;generation:number;error:string;approvedHash:string;diff:'none'|'updated'|'body-changed'|'unpublished';lastErrorCode?:string;attempts?:number}
+/** 出站队列条目；state='failed' 才是可手动重试的失败项。 */
+interface OutboxView {operationId:string;publishId:string;op:string;state:string;attempts:number;lastErrorCode:string;nextRetryAt:number}
+/** Host 的 publications 动作返回三个并列数组，不是一个扁平数组。 */
+interface PublicationsResponse {publications:PublicationView[];outbox:OutboxView[];tombstones:unknown[]}
 interface BaseChoice {id:string;name:string;type:string}
 interface BaseResult {ok:boolean;bases:BaseChoice[];code:string;message:string}
 /** 连接编辑草稿；凭据只以引用名传递。 */
@@ -44,7 +48,7 @@ export function MemorySettingsSection({operations:o}:{operations:PageOperations}
   const [bindScope,setBindScope]=useState(''),[binding,setBinding]=useState<BindingView|null>(),[draftDirty,setDraftDirty]=useState(false)
   const [draft,setDraft]=useState({connectionId:'',readKbIds:[] as string[],publishKbId:''})
   const [connDraft,setConnDraft]=useState<ConnectionInput>(blankConnection),[connEditing,setConnEditing]=useState(false)
-  const [publications,setPublications]=useState<PublicationView[]>([]),[preview,setPreview]=useState<PreviewView|null>(),[previewTarget,setPreviewTarget]=useState('')
+  const [publications,setPublications]=useState<PublicationView[]>([]),[queue,setQueue]=useState<OutboxView[]>([]),[preview,setPreview]=useState<PreviewView|null>(),[previewTarget,setPreviewTarget]=useState('')
   const [syncNote,setSyncNote]=useState('')
   const config=form.value,writable=!!overview?.writable&&form.writable
   async function run(action:()=>Promise<void>):Promise<void>{setBusy(true);setError('');try{await action()}catch(e){const message=e instanceof Error?e.message:String(e);setError(message.includes('REVISION_CONFLICT')?t.conflict:message)}finally{setBusy(false)}}
@@ -70,12 +74,19 @@ export function MemorySettingsSection({operations:o}:{operations:PageOperations}
   const active=connections.find(c=>c.connectionId===draft.connectionId)??connections[0]
   const bases=kbResults[draft.connectionId],maxRead=active?.maxKnowledgeBases||2
   const publishOptions=bases?.ok?bases.bases:[]
-  const failed=publications.filter(p=>p.state==='failed')
-  const pending=publications.filter(p=>p.state!=='withdrawn'&&(p.state==='failed'||p.diff!=='none')).length
+  // 队列错误以 outbox 为准（state='failed'），发布记录本身不能代表队列健康。
+  const failed=queue.filter(op=>op.state==='failed')
+  const pending=queue.filter(op=>op.state==='pending'||op.state==='running').length
+  const publicationOf=(publishId:string):PublicationView|undefined=>publications.find(p=>p.publishId===publishId)
   const previewTargets=[...(detail?[detail]:[]),...list].filter((item,index,all)=>all.findIndex(other=>other.id===item.id)===index)
   const diffText=(diff:PublicationView['diff']):string=>diff==='none'?t.kbDiffNone:diff==='updated'?t.kbDiffUpdated:diff==='body-changed'?t.kbDiffBodyChanged:t.kbDiffUnpublished
   const connectionField=(key:keyof ConnectionInput,label:string,hint:string):React.ReactElement=><label key={key}><span>{label}</span><input aria-label={label} value={connDraft[key]??''} placeholder={hint} disabled={!editable} onChange={event=>setConnDraft({...connDraft,[key]:event.target.value} as ConnectionInput)}/></label>
-  async function loadPublications():Promise<void>{setPublications(await ask<PublicationView[]>({action:'publications'}))}
+  async function loadPublications():Promise<void>{
+    // 契约：{publications, outbox, tombstones}；防御性解析避免整页崩溃。
+    const value=await ask<PublicationsResponse>({action:'publications'})
+    setPublications(Array.isArray(value?.publications)?value.publications:[])
+    setQueue(Array.isArray(value?.outbox)?value.outbox:[])
+  }
   async function loadBinding(scope:string,known:ConnectionView[]=connections,force=false):Promise<void>{
     let value:BindingView|null
     try{value=await ask<BindingView|null>({action:'binding',scope})}
@@ -213,7 +224,7 @@ export function MemorySettingsSection({operations:o}:{operations:PageOperations}
     <h4>{t.kbPublications}</h4>
     {!!failed.length&&<div className="dm-card">
       <div className="dm-heading"><div><strong>{t.kbQueueErrors}</strong><p>{t.kbQueueHelp}</p></div><button disabled={!editable} onClick={()=>void run(syncNow)}>{t.kbSyncNow}</button></div>
-      {failed.map(p=><div className="dm-row" key={p.publishId}><div className="dm-grow"><strong>{p.memoryId}</strong><small>{t.kbStateLabel}：{p.state} · {t.kbErrorCode}：{p.lastErrorCode||p.error||t.kbUnknown}</small><small>{t.kbAttempts}：{p.attempts??t.kbUnknown} · {t.kbTarget}：{p.targetKbId}{p.remoteId?` · ${t.kbRemoteId}：${p.remoteId}`:''}</small></div><button className="dm-danger" disabled={!editable} onClick={()=>void run(()=>withdraw(p))}>{t.kbWithdraw}</button></div>)}
+      {failed.map(op=>{const p=publicationOf(op.publishId);return <div className="dm-row" key={op.operationId}><div className="dm-grow"><strong>{p?.memoryId??op.publishId}</strong><small>{t.kbOperation}：{op.op} · {t.kbStateLabel}：{op.state} · {t.kbErrorCode}：{op.lastErrorCode||t.kbUnknown}</small><small>{t.kbAttempts}：{op.attempts} · {t.kbTarget}：{p?.targetKbId??t.kbUnknown}{p?.remoteId?` · ${t.kbRemoteId}：${p.remoteId}`:''}</small></div>{p&&<button className="dm-danger" disabled={!editable} onClick={()=>void run(()=>withdraw(p))}>{t.kbWithdraw}</button>}</div>})}
     </div>}
     <div className="dm-card">
       {publications.map(p=><div className="dm-row" key={p.publishId}><div className="dm-grow"><strong>{p.memoryId}</strong>
