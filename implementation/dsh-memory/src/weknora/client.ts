@@ -139,15 +139,26 @@ const knowledgeSchema = z.object({
 /** 正文哈希用于证明检索片段与已发布批准快照一致。 */
 export function bodyHash(text: string): string { return createHash('sha256').update(text).digest('hex') }
 
-/** 从 manual metadata 中读取正文与版本；非手工文档返回 null。 */
+/**
+ * 从 manual metadata 中读取正文、发布状态与版本；非手工文档返回 null。
+ *
+ * 真实 v0.8.2 返回的是**扁平**结构：`metadata.content` / `metadata.status` /
+ * `metadata.version` / `metadata.format` / `metadata.updated_at`（已对真实实例核查）。
+ * 早期实现按 `metadata.manual.*` 嵌套读取，导致手工正文与版本恒为 null——
+ * 那样发布校验无法证明正文一致，索引完成判定也就永远无法成立。
+ * 这里两种形态都接受，避免版本差异造成静默失效。
+ */
 export function manualMetadata(metadata: unknown): { content: string; status: string; version: number } | null {
   if (typeof metadata !== 'object' || metadata === null) return null
-  const manual = Reflect.get(metadata, 'manual')
-  if (typeof manual !== 'object' || manual === null) return null
-  const content = Reflect.get(manual, 'content')
+  const nested = Reflect.get(metadata, 'manual')
+  // 扁平形态优先：只有它带有 format/status 语义；嵌套形态用于兼容旧快照。
+  const source: object = typeof Reflect.get(metadata, 'content') === 'string'
+    ? metadata
+    : (typeof nested === 'object' && nested !== null ? nested : metadata)
+  const content = Reflect.get(source, 'content')
   if (typeof content !== 'string') return null
-  const status = Reflect.get(manual, 'status')
-  const version = Reflect.get(manual, 'version')
+  const status = Reflect.get(source, 'status')
+  const version = Reflect.get(source, 'version')
   return { content, status: typeof status === 'string' ? status : '', version: typeof version === 'number' ? version : 0 }
 }
 

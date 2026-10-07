@@ -84,7 +84,10 @@
 - `pending_subtasks_count`：仅 `finalizing` 时有意义
 - `metadata`：内部摄取状态（JSON）
 - `custom_metadata`：用户自定义元数据（JSON，扁平对象）
-- 手工文档的正文与版本存放在 `metadata` 内的 `ManualKnowledgeMetadata`（见第 6 节）
+- 手工文档的正文与版本存放在 `metadata` 内，但**是扁平结构而非嵌套**（2026-10-08 对真实
+  v0.8.2 实例核查修正）：`metadata.content`、`metadata.format`、`metadata.status`、
+  `metadata.version`、`metadata.updated_at`。既有文件型文档的 `metadata` 形状相同，
+  因此不能靠键名区分手工与文件文档。
 
 ## 5 分块分页：GET /api/v1/chunks/:knowledge_id
 
@@ -165,6 +168,21 @@ type ManualKnowledgePayload struct {
 
 方案中的 `process_config` 示例与本提交结构一致。自动打标签、profile 生成与 Wiki
 不是本结构字段，不能猜测键名发送。
+
+## 7.1 真实实例核查修正（2026-10-08）
+
+对真实 v0.8.2 实例（`http://192.168.3.100:18080`）实测后修正以下结论：
+
+| 项目 | 源码阅读结论 | 真实实例实测 | 处理 |
+|---|---|---|---|
+| 手工正文位置 | `metadata` 内的 `ManualKnowledgeMetadata` | **扁平**：`metadata.content/format/status/version/updated_at` | 已修正适配器；此前按 `metadata.manual.*` 读取导致正文与版本恒为 null |
+| 既有文档 metadata | 未核查 | 与手工文档**同形状**（含 content/status/version） | 不能用形状区分文档类型 |
+| `PUT manual` 后的 `parse_status` | 未明确 | `pending` → `finalizing` → `completed`，实测约 **12–73 秒** | 索引轮询期限放宽到 300s（可配置） |
+| `process_config` 落库 | 文档称 publish 时才应用 | 实测确实写入 `metadata.process_overrides` | 结论成立 |
+| `version` 递增 | 每次 PUT +1 | 实测 1→2→3 | 结论成立 |
+| `/api/v1/system/info` | 需 `manage_vector_stores` | 实测 403，无权限 | 探针降级为 version=unknown，不影响可用性 |
+| 删除确认 | 200 入队，需 GET 404 | 实测 200 后 GET 404，中间可见 `deleting` | 结论成立 |
+| `parse_status` 取值 | 常量表无 draft | 手工草稿实测 `draft` | 已在适配器接受 |
 
 ## 8 版本适配决定
 

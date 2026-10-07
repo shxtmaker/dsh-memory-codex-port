@@ -34,10 +34,11 @@ npm 公共缓存在沙箱下只读，安装改用工作区缓存：
 | P10 | 设置页扩展 | 已实现并验证（类型与构建） | `src/client/MemorySettingsSection.tsx`、`locales.ts`、`style.ts` |
 | P11 | 整理分批与用量文案 | 已实现并验证 | `tests/weknora-batching.test.mjs` 5/5；1024 明确标为字节额度 |
 | P12 | 打包与回滚步骤 | 已实现并验证 | `scripts/release.mjs`；`dist/dsh-memory-local-0.3.0.tgz` + SHA256 |
-| P13 | T1/T2/T3 验收 | T1 真实 Host 通过；T2/T3 协议与状态机通过，真实服务受阻 | `ACCEPTANCE.md`；`docs/verification/t2-t3-entry.md`；`tests/t1-install.mjs` |
+| P13 | T1/T2/T3 验收 | T1、T2、T3 真实环境全部通过（T3 20/20）；仅成本对照未执行 | `ACCEPTANCE.md`；`evidence/weknora-real-1791395135833.json`；`tests/t1-install.mjs`；`tests/weknora-real.mjs` |
 
-合计自动化检查：**89/89 通过**（`npm test`），构建与两份类型检查通过。
-T1 真实验收另经 `node tests/t1-install.mjs` 通过（隔离 profile 安装 + 真实 loopback Host）。
+合计自动化检查：**90/90 通过**（`npm test`），构建与两份类型检查通过。
+T1 真实验收经 `node tests/t1-install.mjs` 通过；T2/T3 真实验收经
+`node tests/weknora-real.mjs` 通过（20/20）。
 
 安全备份：工作区根 `_package/` 与 `_ref/` 为方案包与 WeKnora 参考源码，不属于交付物；
 交付物为 `dist/dsh-memory-local-0.3.0.tgz`（SHA256 见 `dist/SHA256SUMS.txt`）。
@@ -65,18 +66,46 @@ T1 真实验收另经 `node tests/t1-install.mjs` 通过（隔离 profile 安装
     触发 `filter is not a function`，整个记忆设置页崩溃、记忆页面完全不可见。
 13. **队列失败项判定错误**：发布记录不代表队列健康，改为按 outbox 的 `state='failed'` 渲染。
 
+## 真实验收结果（2026-10-08）
+
+环境：WeKnora `http://192.168.3.100:18080/api/v1`，知识库
+`4f4ff687-7b56-4f6c-ad83-fd5aaa627731`（验收前 99 篇真实文档）。
+
+| 组 | 结果 |
+|---|---|
+| T1 真实 Host 安装 | **通过**：隔离 profile 安装 tgz → loopback Host → 设置页渲染，重启保留 |
+| T2 真实检索 | **通过**：search 403ms 命中 6 条（首条 match_type=0 embedding 通道）；已知答案命中；分页读取 17/17 块原序；超时/取消/401 均按预期失败 |
+| T3 真实发布闭环 | **通过 20/20**：创建→对账→元数据→发布（索引 48s）→检索验证→重复不产生副本→更新（version 3）→外部改写可检出→撤回 GET 404→删除后不复现 |
+
+授权边界核对：验收前后知识库 `total` 均为 99，新增 0、删除 0、既有文档被改动 0；
+所有合成文档已清理。证据：`evidence/weknora-real-1791395135833.json`。
+
+### 真实验收发现并修复的缺陷
+
+**手工 metadata 是扁平结构，不是嵌套**（阻塞级）：
+真实实例返回 `metadata.content/format/status/version/updated_at`，
+而实现按 `metadata.manual.*` 读取，导致 `manualContent`/`manualVersion`/`bodyHash`
+**恒为 null** —— 发布校验无法证明正文一致，索引完成判定永远不成立，
+T3 整条链路实际不可用。已在 `client.ts` 修正并加回归用例
+（`tests/weknora-contract.test.mjs`「手工 metadata 为扁平结构」）。
+
+**索引富化耗时远超预期**：`pending → finalizing → completed` 实测 48–73 秒。
+原 120s 期限在首次运行被 `finalizing` 耗尽；轮询期限放宽到 300s
+（`WEKNORA_INDEX_TIMEOUT_MS` 可配置），并在超时信息中区分“仍在推进”与“真的卡住”。
+
+**既有文档 metadata 形状与手工文档相同**：不能靠键名区分文档类型。
+
 ## 当前阻塞
 
-未提供 WeKnora 实例地址、租户、隔离知识库 ID 与读取/发布凭据引用，
-因此 T2 的真实检索与成本对照、T3 的真实发布闭环为**受阻**。
-本机 HTTP 夹具与真实 SQLite Worker 已证明协议形状与状态机，
-但**不代替**真实服务验收；未执行项不记为通过。
+无。唯一未执行项为 T2 成本对照（普通任务不发 WeKnora、本地新增耗时 p95 ≤ 10ms、
+普通任务输入 tokens 增幅 ≤ 5%），需同模型同起始上下文的真实模型样本，
+本轮未采集，标注为**未执行**而不是通过。
 
 ## 下一步可执行动作
 
-1. 提供上述条件后，按 `docs/verification/t2-t3-entry.md` 执行 T2/T3 真实验收。
-2. 在隔离测试 profile 安装 `dist/dsh-memory-local-0.3.0.tgz`，完整重启 Host，
-   打开「设置 → 记忆」完成 T1 的人工部分。
-3. 真实样本校准 `matchCount`/`vectorThreshold`/`keywordThreshold` 与
-   `consolidateBatchSources`/`consolidateBatchBytes` 初值。
+1. 采集 T2 成本对照样本（同模型、同起始上下文），补齐唯一未执行项。
+2. 用真实样本校准 `matchCount`/`vectorThreshold`/`keywordThreshold` 与
+   `consolidateBatchSources`/`consolidateBatchBytes` 初值（当前为方案初值）。
+3. 在用户日常 profile 安装 `dist/dsh-memory-local-0.3.0.tgz` 并完整重启 Host，
+   由用户本人确认「设置 → 记忆」的知识库配置与发布预览交互。
 4. 按用户授权决定是否推送远端与发布标签。

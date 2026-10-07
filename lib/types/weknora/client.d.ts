@@ -109,7 +109,15 @@ export declare const CUSTOM_METADATA_KEY_MAX = 64;
 export declare const CUSTOM_METADATA_VALUE_MAX = 1000;
 /** 正文哈希用于证明检索片段与已发布批准快照一致。 */
 export declare function bodyHash(text: string): string;
-/** 从 manual metadata 中读取正文与版本；非手工文档返回 null。 */
+/**
+ * 从 manual metadata 中读取正文、发布状态与版本；非手工文档返回 null。
+ *
+ * 真实 v0.8.2 返回的是**扁平**结构：`metadata.content` / `metadata.status` /
+ * `metadata.version` / `metadata.format` / `metadata.updated_at`（已对真实实例核查）。
+ * 早期实现按 `metadata.manual.*` 嵌套读取，导致手工正文与版本恒为 null——
+ * 那样发布校验无法证明正文一致，索引完成判定也就永远无法成立。
+ * 这里两种形态都接受，避免版本差异造成静默失效。
+ */
 export declare function manualMetadata(metadata: unknown): {
     content: string;
     status: string;

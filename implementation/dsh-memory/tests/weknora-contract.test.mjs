@@ -14,7 +14,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { WeKnoraClient, WeKnoraError, LOW_COST_PROCESS_CONFIG } from '../lib/weknora/client.js'
+import { WeKnoraClient, WeKnoraError, LOW_COST_PROCESS_CONFIG, bodyHash } from '../lib/weknora/client.js'
 
 /** 启动一个记录全部请求的本机服务器，按路径返回固定契约形状。 */
 async function fixture(handler) {
@@ -192,6 +192,29 @@ test('T2 契约：分块分页与原序字段；手工文档五步写入形状�
     const listed = await client.listKnowledge('kb-pub', 1, 100)
     assert.equal(listed.total, 1)
     assert.equal(listed.items[0].manualVersion, 2)
+  } finally { await server.close() }
+})
+
+test('T2 契约：手工 metadata 为扁平结构时正文与版本仍可读出（真实实例形状）', async () => {
+  // 真实 v0.8.2 返回扁平 metadata；早期实现按 metadata.manual.* 嵌套读取，
+  // 导致手工正文与版本恒为 null，发布校验与索引完成判定也就永远不成立。
+  const flat = { content: '扁平正文', format: 'markdown', status: 'publish', version: 7, updated_at: '2026-10-07T17:36:23Z' }
+  const server = await fixture(record => {
+    if (record.url.startsWith('/api/v1/knowledge/')) return { body: { success: true, data: { id: 'flat-1', knowledge_base_id: 'kb-pub', title: 'T', parse_status: 'completed', metadata: flat, custom_metadata: {} } } }
+    // 列表请求带查询串，需用前缀匹配而不是全等。
+    if (record.url.startsWith('/api/v1/knowledge-bases/kb-pub/knowledge')) return { body: { success: true, total: 1, page: 1, page_size: 100, data: [{ id: 'flat-1', knowledge_base_id: 'kb-pub', title: 'T dsh-memory-publish:pub-1', parse_status: 'completed', metadata: flat, custom_metadata: {} }] } }
+    return { status: 404, body: { success: false, error: { code: 1003, message: 'not found' } } }
+  })
+  try {
+    const client = new WeKnoraClient({ baseUrl: server.baseUrl, apiKey: 'k' })
+    const detail = await client.getKnowledge('flat-1')
+    assert.equal(detail.manualContent, '扁平正文', '必须能从扁平 metadata.content 读出正文')
+    assert.equal(detail.manualStatus, 'publish', '必须能读出发布状态')
+    assert.equal(detail.manualVersion, 7, '必须能读出手工版本')
+    assert.equal(detail.bodyHash, bodyHash('扁平正文'), 'bodyHash 必须可由正文复算，不能为 null')
+    // 列表接口（不回填正文时）也必须能按标题标记对账。
+    const listed = await client.listKnowledge('kb-pub', 1, 100)
+    assert.equal(listed.items[0].manualVersion, 7)
   } finally { await server.close() }
 })
 

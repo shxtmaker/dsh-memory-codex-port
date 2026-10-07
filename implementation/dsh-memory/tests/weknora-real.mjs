@@ -110,18 +110,26 @@ async function findByMarker(client, kbId, publishId) {
   return { page: 0, hits: [] }
 }
 
-/** 轮询索引状态，直到 completed 或超期。 */
-async function waitForIndex(client, knowledgeId, deadlineMs = 120000) {
+/**
+ * 轮询索引状态，直到 completed 或超期。
+ *
+ * 真实实例在 publish 后会经历 pending → processing → finalizing → completed，
+ * 其中 finalizing 是富化子任务（问题生成等）阶段，实测可持续数十秒。
+ * 因此期限默认放宽，并把最后一次可见状态与已耗时写进错误信息，便于区分
+ * “仍在推进”与“真的卡住”。
+ */
+async function waitForIndex(client, knowledgeId, deadlineMs = Number(process.env.WEKNORA_INDEX_TIMEOUT_MS ?? 300000)) {
   const started = Date.now()
   let last = ''
+  let lastChange = Date.now()
   while (Date.now() - started < deadlineMs) {
     const detail = await client.getKnowledge(knowledgeId)
-    last = detail.parseStatus
+    if (detail.parseStatus !== last) { last = detail.parseStatus; lastChange = Date.now() }
     if (detail.parseStatus === 'completed') return detail
-    if (detail.parseStatus === 'failed') throw new Error(`索引失败：parse_status=failed`)
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    if (detail.parseStatus === 'failed') throw new Error('索引失败：parse_status=failed')
+    await new Promise(resolve => setTimeout(resolve, 3000))
   }
-  throw new Error(`索引超期未完成，最后状态=${last}`)
+  throw new Error(`索引超期未完成：最后状态=${last}，已等 ${((Date.now() - started) / 1000).toFixed(0)}s，该状态已持续 ${((Date.now() - lastChange) / 1000).toFixed(0)}s`)
 }
 
 /** 确认远端删除完成：GET 必须返回 404。 */
